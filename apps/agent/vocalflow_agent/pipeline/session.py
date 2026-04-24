@@ -25,6 +25,7 @@ Every event is pushed to Redis pubsub for the dashboard and to Langfuse for audi
 
 Barge-in: customer audio during agent speech cancels TTS + LLM immediately.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,7 +34,6 @@ import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
-from uuid import uuid4
 
 import redis.asyncio as aioredis
 import structlog
@@ -41,7 +41,7 @@ import structlog
 from ..config import settings
 from ..tools.registry import TOOL_DEFINITIONS, ToolContext, ToolRouter
 from .endpointing import EndpointState, is_endpoint
-from .llm import ClaudeStreamer, TokenChunk
+from .llm import ClaudeStreamer
 from .sentiment import SentimentTracker
 
 log = structlog.get_logger("session")
@@ -121,7 +121,7 @@ class CallSession:
 
     # ---- Public entry points ----
 
-    async def run(self, audio_in: AsyncIterator[bytes], audio_out: "AudioSink") -> None:
+    async def run(self, audio_in: AsyncIterator[bytes], audio_out: AudioSink) -> None:
         """Main loop — drives STT, turn detection, and agent response."""
         # 1. Play greeting immediately.
         await self._speak("Hi, thanks for calling. How can I help?", audio_out)
@@ -161,6 +161,7 @@ class CallSession:
             interim_results=settings.stt_interim_results,
             endpointing_ms=settings.stt_endpointing_ms,
         ) as dg:
+
             async def pump() -> None:
                 async for chunk in audio_in:
                     await dg.send(chunk)
@@ -172,7 +173,7 @@ class CallSession:
             await queue.put({"type": "eof"})
             pump_task.cancel()
 
-    async def _handle_partial(self, evt: dict[str, Any], audio_out: "AudioSink") -> None:
+    async def _handle_partial(self, evt: dict[str, Any], audio_out: AudioSink) -> None:
         text = evt["text"]
         self._endpoint.update_text(text)
         self._endpoint.update_silence(evt.get("silence_ms", 0))
@@ -187,7 +188,7 @@ class CallSession:
         if is_endpoint(self._endpoint):
             await self._run_turn(text, evt.get("customer_end_ts"), audio_out)
 
-    async def _handle_final(self, evt: dict[str, Any], audio_out: "AudioSink") -> None:
+    async def _handle_final(self, evt: dict[str, Any], audio_out: AudioSink) -> None:
         # Deepgram's own final; only run if we haven't already handled it.
         text = evt["text"]
         if self._endpoint.text == text and self._turn_counter > 0:
@@ -196,7 +197,7 @@ class CallSession:
         await self._run_turn(text, evt.get("customer_end_ts"), audio_out)
 
     async def _run_turn(
-        self, customer_text: str, customer_end_ts: float | None, audio_out: "AudioSink"
+        self, customer_text: str, customer_end_ts: float | None, audio_out: AudioSink
     ) -> None:
         self._turn_counter += 1
         self._endpoint = EndpointState()
@@ -210,9 +211,7 @@ class CallSession:
         # Cancel any still-playing agent speech (defensive).
         await self._cancel_agent_speech()
 
-        self._agent_speech_task = asyncio.create_task(
-            self._generate_and_speak(audio_out, marks)
-        )
+        self._agent_speech_task = asyncio.create_task(self._generate_and_speak(audio_out, marks))
 
         if self._sentiment.should_suggest_handoff and settings.feature_emotion_routing:
             # Inject a system nudge on the next turn so the agent offers a handoff.
@@ -226,9 +225,7 @@ class CallSession:
                 }
             )
 
-    async def _generate_and_speak(
-        self, audio_out: "AudioSink", marks: LatencyMarks
-    ) -> None:
+    async def _generate_and_speak(self, audio_out: AudioSink, marks: LatencyMarks) -> None:
         """Streams LLM tokens → TTS → audio_out; pauses for tool calls."""
         sent_first_token = False
         text_buffer: list[str] = []
@@ -261,9 +258,7 @@ class CallSession:
                     combined = "".join(text_buffer)
                     if _has_sentence_boundary(combined):
                         sentence, leftover = _split_on_last_boundary(combined)
-                        tts_tasks.append(
-                            asyncio.create_task(self._speak(sentence, audio_out))
-                        )
+                        tts_tasks.append(asyncio.create_task(self._speak(sentence, audio_out)))
                         text_buffer = [leftover] if leftover else []
                 elif chunk.kind == "tool_use_end":
                     # Flush any pending text first (agent said something before tool).
@@ -337,9 +332,7 @@ class CallSession:
             if filler_task and not filler_task.done():
                 filler_task.cancel()
 
-    async def _speak(
-        self, text: str, audio_out: "AudioSink", *, filler: bool = False
-    ) -> None:
+    async def _speak(self, text: str, audio_out: AudioSink, *, filler: bool = False) -> None:
         """Synthesize via ElevenLabs Flash → stream chunks to room."""
         from .tts import stream_tts
 
@@ -363,11 +356,11 @@ class CallSession:
             self._agent_speech_task.cancel()
             try:
                 await self._agent_speech_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            except (asyncio.CancelledError, Exception):
                 pass
             await self._log_event("interruption", {"at_ms": int(time.time() * 1000)})
 
-    async def _handle_emergency(self, matched_kw: str, audio_out: "AudioSink") -> None:
+    async def _handle_emergency(self, matched_kw: str, audio_out: AudioSink) -> None:
         await self._cancel_agent_speech()
         await self._speak(
             "I understand — this sounds urgent. Hold on, I'm getting you to someone now.",
@@ -390,9 +383,7 @@ class CallSession:
             "text": text,
             "ts_ms": int((time.time() - self._started_at) * 1000),
         }
-        await self._redis.publish(
-            f"vocalflow.calls.{self.ctx.call_id}.events", json.dumps(payload)
-        )
+        await self._redis.publish(f"vocalflow.calls.{self.ctx.call_id}.events", json.dumps(payload))
         await self._redis.xadd(f"vocalflow.calls.{self.ctx.call_id}.transcript", payload)
 
     async def _log_event(self, type_: str, payload: dict[str, Any]) -> None:
@@ -411,6 +402,7 @@ class CallSession:
 
 
 # ---- Audio sink contract ----
+
 
 class AudioSink:
     async def write(self, pcm_chunk: bytes) -> None:  # pragma: no cover - interface

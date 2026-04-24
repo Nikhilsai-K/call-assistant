@@ -6,6 +6,7 @@ within 30 seconds; see ops runbook).
 
 Streams PCM chunks as they arrive; first-chunk target < 100ms.
 """
+
 from __future__ import annotations
 
 import json
@@ -24,7 +25,7 @@ async def stream_tts(
             async for chunk in _elevenlabs(text, voice_id):
                 yield chunk
             return
-        except Exception:  # noqa: BLE001 — fallback to Cartesia
+        except Exception:
             pass
     async for chunk in _cartesia(text, voice_id):
         yield chunk

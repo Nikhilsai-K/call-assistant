@@ -2,6 +2,7 @@
 Thin wrappers around LiveKit audio I/O. The CallSession speaks to these
 interfaces; tests substitute fakes.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -12,7 +13,7 @@ from ..pipeline.session import AudioSink
 class LiveKitAudioSink(AudioSink):
     """Publishes 16kHz PCM frames into a LiveKit room as an agent track."""
 
-    def __init__(self, room: "livekit.rtc.Room", sample_rate: int = 16000):  # noqa: F821
+    def __init__(self, room: livekit.rtc.Room, sample_rate: int = 16000):  # noqa: F821
         self._room = room
         self._sr = sample_rate
         self._source = None
@@ -42,7 +43,7 @@ class LiveKitAudioSink(AudioSink):
             await self._source.capture_frame(frame)
 
 
-async def iter_participant_audio(track: "livekit.rtc.RemoteAudioTrack") -> AsyncIterator[bytes]:  # noqa: F821
+async def iter_participant_audio(track: livekit.rtc.RemoteAudioTrack) -> AsyncIterator[bytes]:  # noqa: F821
     from livekit import rtc
 
     stream = rtc.AudioStream(track)

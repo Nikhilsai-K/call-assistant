@@ -3,6 +3,7 @@ Smoke-tests the golden scenario file itself — structure must stay valid as
 scenarios are edited. The full replay harness (uses real providers) runs in
 the `eval` CI job, not unit tests.
 """
+
 import json
 from pathlib import Path
 

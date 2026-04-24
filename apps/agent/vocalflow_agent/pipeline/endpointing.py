@@ -12,6 +12,7 @@ Heuristic V1:
 
 Upgrades later: a small classifier fine-tuned on transcripts.
 """
+
 from __future__ import annotations
 
 import re
@@ -70,9 +71,6 @@ def is_endpoint(
         return True
 
     # Semantic cue + short silence: endpoint.
-    if state.consecutive_silence_ms >= soft_silence_ms and (
+    return state.consecutive_silence_ms >= soft_silence_ms and bool(
         _TERMINAL_PUNCT.search(state.text) or _LEX_ENDS.search(state.text)
-    ):
-        return True
-
-    return False
+    )

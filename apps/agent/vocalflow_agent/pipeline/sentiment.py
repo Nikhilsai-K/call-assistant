@@ -7,6 +7,7 @@ Cheap per-turn sentiment classifier. Two-tier:
 Trigger: if sentiment trends negative for 2+ consecutive turns, the main loop
 proactively surfaces transfer_to_human.
 """
+
 from __future__ import annotations
 
 import re

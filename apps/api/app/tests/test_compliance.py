@@ -1,16 +1,14 @@
 """
 Compliance gates — cannot be bypassed. These tests enforce that requirement.
 """
-from datetime import datetime, time
+
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from app.services.compliance import (
     AREA_CODE_STATE,
-    ComplianceViolation,
-    QUIET_HOURS_END,
-    QUIET_HOURS_START,
     parse_number,
     recording_notice_required,
     requires_two_party_consent,

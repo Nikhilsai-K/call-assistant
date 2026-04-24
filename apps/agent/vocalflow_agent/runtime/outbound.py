@@ -2,11 +2,10 @@
 Outbound call placement. Compliance is re-checked here defensively (the API
 already checked; this is defense-in-depth in case of direct stream writes).
 """
+
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
-from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -30,13 +29,9 @@ async def handle_outbound(fields: dict[str, str]) -> None:
     engine = create_async_engine(settings.database_url)
     Session = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with Session() as s:
-        await s.execute(
-            text("SELECT set_config('app.current_org_id', :o, true)"), {"o": org_id}
-        )
+        await s.execute(text("SELECT set_config('app.current_org_id', :o, true)"), {"o": org_id})
         dnc = (
-            await s.execute(
-                text("SELECT 1 FROM dnc_list WHERE phone = :p"), {"p": to}
-            )
+            await s.execute(text("SELECT 1 FROM dnc_list WHERE phone = :p"), {"p": to})
         ).scalar_one_or_none()
         if dnc:
             log.warn("outbound.dnc_blocked", to=to)
@@ -56,9 +51,7 @@ async def handle_outbound(fields: dict[str, str]) -> None:
 
     client = Client(settings.twilio_account_sid, "")
     room_name = f"out-{uuid4().hex[:10]}"
-    twiml_url = (
-        f"{settings.api_base_url}/v1/webhooks/twilio/outbound-bridge?room={room_name}"
-    )
+    twiml_url = f"{settings.api_base_url}/v1/webhooks/twilio/outbound-bridge?room={room_name}"
     client.calls.create(to=to, from_=None, url=twiml_url, record=False)
     # The outbound call hits the bridge → joins LiveKit room → our inbound
     # handler picks up identically. The handler reuses handle_inbound's logic

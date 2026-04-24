@@ -19,9 +19,7 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 
 
 @router.post("", response_model=AgentRead, status_code=status.HTTP_201_CREATED)
-async def create_agent(
-    body: AgentCreate, p: Principal = Depends(current_principal)
-) -> AgentRead:
+async def create_agent(body: AgentCreate, p: Principal = Depends(current_principal)) -> AgentRead:
     compiled = await compile_prompt(body.plain_instructions, body.personality)
     async with get_session(p.org_id) as s:
         agent = Agent(

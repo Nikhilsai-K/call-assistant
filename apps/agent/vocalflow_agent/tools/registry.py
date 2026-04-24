@@ -9,6 +9,7 @@ Every tool execution is:
     never silence. The caller then decides whether to retry, fall back, or
     transfer_to_human.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,8 +19,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-
-from ..config import settings
 
 # --- Anthropic tool-use schemas (claude.messages tools=...) ---
 
@@ -223,13 +222,13 @@ class ToolRouter:
             result = await asyncio.wait_for(handler(args), timeout=timeout)
             result["_elapsed_ms"] = int((time.perf_counter() - started) * 1000)
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {
                 "error": "tool_timeout",
                 "_elapsed_ms": int(timeout * 1000),
                 "_backchannel": "one sec — my system's a little slow",
             }
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             return {
                 "error": f"tool_error: {e}",
                 "_elapsed_ms": int((time.perf_counter() - started) * 1000),

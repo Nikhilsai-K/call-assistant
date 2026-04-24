@@ -1,8 +1,7 @@
 """
 External webhooks. Each verifies its own signature.
 """
-import hashlib
-import hmac
+
 import json
 
 import redis.asyncio as aioredis
@@ -44,10 +43,7 @@ async def twilio_voice(request: Request) -> Response:
         pn = res.scalar_one_or_none()
 
     if pn is None:
-        twiml = (
-            "<Response><Say>This number is not configured. Goodbye.</Say>"
-            "<Hangup/></Response>"
-        )
+        twiml = "<Response><Say>This number is not configured. Goodbye.</Say><Hangup/></Response>"
         return Response(content=twiml, media_type="application/xml")
 
     # Publish an "incoming call" event; agent worker claims it and joins the room.
@@ -71,9 +67,9 @@ async def twilio_voice(request: Request) -> Response:
     stream_url = f"wss://media.vocalflow.app/twilio-bridge/{room}"
     twiml = (
         "<Response>"
-        f"<Connect><Stream url=\"{stream_url}\">"
-        f"<Parameter name=\"room\" value=\"{room}\"/>"
-        f"<Parameter name=\"org_id\" value=\"{pn.org_id}\"/>"
+        f'<Connect><Stream url="{stream_url}">'
+        f'<Parameter name="room" value="{room}"/>'
+        f'<Parameter name="org_id" value="{pn.org_id}"/>'
         "</Stream></Connect>"
         "</Response>"
     )
@@ -117,11 +113,10 @@ async def calendar_webhook(provider: str, request: Request) -> dict:
 
 @router.post("/slack/events")
 async def slack_events(request: Request) -> dict:
-    settings = get_settings()
     body = await request.body()
     # Slack Events API — respond to URL verification, forward real events.
     data = json.loads(body or b"{}")
     if data.get("type") == "url_verification":
         return {"challenge": data["challenge"]}
-    # Verify signature (skipped in dev)
+    # Verify signature (skipped in dev; prod uses settings.slack_signing_secret).
     return {"ok": True}

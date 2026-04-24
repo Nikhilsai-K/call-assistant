@@ -20,9 +20,7 @@ router = APIRouter(prefix="/calls", tags=["calls"])
 
 # ---- List ----
 @router.get("", response_model=list[CallRead])
-async def list_calls(
-    limit: int = 50, p: Principal = Depends(current_principal)
-) -> list[CallRead]:
+async def list_calls(limit: int = 50, p: Principal = Depends(current_principal)) -> list[CallRead]:
     limit = max(1, min(200, limit))
     async with get_session(p.org_id) as s:
         res = await s.execute(
@@ -66,9 +64,7 @@ async def start_outbound(
 @router.get("/{call_id}", response_model=CallRead)
 async def get_call(call_id: UUID, p: Principal = Depends(current_principal)) -> CallRead:
     async with get_session(p.org_id) as s:
-        res = await s.execute(
-            select(Call).where(Call.id == call_id, Call.org_id == UUID(p.org_id))
-        )
+        res = await s.execute(select(Call).where(Call.id == call_id, Call.org_id == UUID(p.org_id)))
         call = res.scalar_one_or_none()
         if call is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND)
@@ -81,9 +77,7 @@ async def transcript_snapshot(
 ) -> list[dict]:
     async with get_session(p.org_id) as s:
         # Tenant check.
-        res = await s.execute(
-            select(Call).where(Call.id == call_id, Call.org_id == UUID(p.org_id))
-        )
+        res = await s.execute(select(Call).where(Call.id == call_id, Call.org_id == UUID(p.org_id)))
         if res.scalar_one_or_none() is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND)
 
@@ -113,9 +107,7 @@ async def transcript_stream(
     # Tenant check up front.
     async with get_session(p.org_id) as s:
         if (
-            await s.execute(
-                select(Call).where(Call.id == call_id, Call.org_id == UUID(p.org_id))
-            )
+            await s.execute(select(Call).where(Call.id == call_id, Call.org_id == UUID(p.org_id)))
         ).scalar_one_or_none() is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND)
 
@@ -146,9 +138,7 @@ async def transcript_stream(
 @router.get("/{call_id}/recording")
 async def recording_url(call_id: UUID, p: Principal = Depends(current_principal)) -> dict:
     async with get_session(p.org_id) as s:
-        res = await s.execute(
-            select(Call).where(Call.id == call_id, Call.org_id == UUID(p.org_id))
-        )
+        res = await s.execute(select(Call).where(Call.id == call_id, Call.org_id == UUID(p.org_id)))
         call = res.scalar_one_or_none()
         if call is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND)

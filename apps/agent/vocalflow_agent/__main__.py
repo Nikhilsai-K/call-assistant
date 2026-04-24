@@ -11,6 +11,7 @@ Two modes:
 In both cases, audio flows through a LiveKit room. The PSTN <-> LiveKit bridge
 runs as a separate process (Twilio Media Streams → LiveKit ingress).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,7 +36,7 @@ async def inbound_loop() -> None:
     consumer = f"agent-{uuid4().hex[:6]}"
     try:
         await r.xgroup_create(stream, group, id="0", mkstream=True)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
     log.info("inbound_loop.started", consumer=consumer)
@@ -48,7 +49,7 @@ async def inbound_loop() -> None:
                 try:
                     await handle_inbound(fields)
                     await r.xack(stream, group, msg_id)
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     log.exception("inbound.failed", msg_id=msg_id, err=str(e))
 
 
@@ -59,7 +60,7 @@ async def outbound_loop() -> None:
     consumer = f"agent-out-{uuid4().hex[:6]}"
     try:
         await r.xgroup_create(stream, group, id="0", mkstream=True)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
     log.info("outbound_loop.started", consumer=consumer)
@@ -72,7 +73,7 @@ async def outbound_loop() -> None:
                 try:
                     await handle_outbound(fields)
                     await r.xack(stream, group, msg_id)
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     log.exception("outbound.failed", msg_id=msg_id, err=str(e))
 
 

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -36,23 +36,20 @@ async def call_analytics(
     to: datetime | None = None,
     p: Principal = Depends(current_principal),
 ) -> CallAnalytics:
-    from_ = from_ or datetime.fromtimestamp(0, tz=timezone.utc)
-    to = to or datetime.now(tz=timezone.utc)
+    from_ = from_ or datetime.fromtimestamp(0, tz=UTC)
+    to = to or datetime.now(tz=UTC)
     async with get_session(p.org_id) as s:
-        q = (
-            select(
-                func.count().label("total"),
-                func.count().filter(Call.outcome == "booked").label("booked"),
-                func.count().filter(Call.outcome == "abandoned").label("abandoned"),
-                func.count().filter(Call.outcome == "transferred").label("transferred"),
-                func.avg(Call.duration_s).label("avg_dur"),
-                func.percentile_cont(0.95).within_group(Call.quality_score).label("p95q"),
-            )
-            .where(
-                Call.org_id == UUID(p.org_id),
-                Call.started_at >= from_,
-                Call.started_at <= to,
-            )
+        q = select(
+            func.count().label("total"),
+            func.count().filter(Call.outcome == "booked").label("booked"),
+            func.count().filter(Call.outcome == "abandoned").label("abandoned"),
+            func.count().filter(Call.outcome == "transferred").label("transferred"),
+            func.avg(Call.duration_s).label("avg_dur"),
+            func.percentile_cont(0.95).within_group(Call.quality_score).label("p95q"),
+        ).where(
+            Call.org_id == UUID(p.org_id),
+            Call.started_at >= from_,
+            Call.started_at <= to,
         )
         row = (await s.execute(q)).one()
         return CallAnalytics(
@@ -71,8 +68,8 @@ async def cost_analytics(
     to: datetime | None = None,
     p: Principal = Depends(current_principal),
 ) -> CostAnalytics:
-    from_ = from_ or datetime.fromtimestamp(0, tz=timezone.utc)
-    to = to or datetime.now(tz=timezone.utc)
+    from_ = from_ or datetime.fromtimestamp(0, tz=UTC)
+    to = to or datetime.now(tz=UTC)
     async with get_session(p.org_id) as s:
         q = select(
             func.coalesce(func.sum(Call.cost_cents), 0).label("total"),

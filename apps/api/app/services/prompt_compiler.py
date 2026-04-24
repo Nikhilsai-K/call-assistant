@@ -7,6 +7,7 @@ structured system prompt + tool config.
 
 Falls back to a deterministic template when Anthropic is unavailable (tests, CI).
 """
+
 from __future__ import annotations
 
 import json
@@ -80,7 +81,12 @@ def _template_fallback(plain: str, personality: Personality | None) -> dict[str,
         ],
         "personality": p.model_dump(),
         "emergency_keywords": [
-            "emergency", "gas smell", "no heat", "burst pipe", "flooding", "fire",
+            "emergency",
+            "gas smell",
+            "no heat",
+            "burst pipe",
+            "flooding",
+            "fire",
         ],
         "greeting": "Hi, thanks for calling — how can I help today?",
     }
@@ -119,7 +125,5 @@ async def compile_prompt(
     except (ValueError, json.JSONDecodeError):
         return _template_fallback(plain, personality)
 
-    compiled["tools_enabled"] = [
-        t for t in compiled.get("tools_enabled", []) if t in ALLOWED_TOOLS
-    ]
+    compiled["tools_enabled"] = [t for t in compiled.get("tools_enabled", []) if t in ALLOWED_TOOLS]
     return compiled

@@ -11,6 +11,7 @@ Steps:
   7. Compute cost reconciliation (STT + LLM + TTS + Twilio minutes).
   8. LLM-as-judge quality score (Opus 4.7) — sampled at 5% (live) or 100% (golden).
 """
+
 from __future__ import annotations
 
 import json
@@ -62,9 +63,7 @@ def redrive() -> int:
     """Pull from Redis stream, dispatch to `process`."""
     count = 0
     while True:
-        entries = _redis.xread(
-            {"vocalflow.postcall.jobs": "0"}, count=10, block=100
-        )
+        entries = _redis.xread({"vocalflow.postcall.jobs": "0"}, count=10, block=100)
         if not entries:
             break
         for _, batch in entries:
@@ -77,17 +76,21 @@ def redrive() -> int:
 
 def _stitch_transcript(call_id: str) -> list[dict[str, Any]]:
     with _Session() as s:
-        rows = s.execute(
-            text(
-                """
+        rows = (
+            s.execute(
+                text(
+                    """
                 SELECT speaker, text, start_ms, end_ms
                 FROM call_transcripts
                 WHERE call_id = :cid
                 ORDER BY start_ms ASC
                 """
-            ),
-            {"cid": call_id},
-        ).mappings().all()
+                ),
+                {"cid": call_id},
+            )
+            .mappings()
+            .all()
+        )
     return [dict(r) for r in rows]
 
 
@@ -169,8 +172,12 @@ def _compute_cost(call_id: str) -> None:
                 """
             ),
             {
-                "id": call_id, "stt": stt, "llm": llm,
-                "tts": tts, "twilio": twilio, "total": total,
+                "id": call_id,
+                "stt": stt,
+                "llm": llm,
+                "tts": tts,
+                "twilio": twilio,
+                "total": total,
             },
         )
         s.commit()

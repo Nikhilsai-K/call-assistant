@@ -10,6 +10,7 @@ Flow:
   5. Subscribe to the incoming participant's audio → CallSession.run(...).
   6. On call end, enqueue post-call job.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -36,17 +37,21 @@ async def _load_agent_config(agent_id: str) -> dict[str, Any]:
 
     async with _Session() as s:
         row = (
-            await s.execute(
-                text(
-                    """
+            (
+                await s.execute(
+                    text(
+                        """
                     SELECT id, org_id, system_prompt, voice_id, voice_provider,
                            tools_enabled, kb_id, emergency_keywords
                     FROM agents WHERE id = :id
                     """
-                ),
-                {"id": agent_id},
+                    ),
+                    {"id": agent_id},
+                )
             )
-        ).mappings().one_or_none()
+            .mappings()
+            .one_or_none()
+        )
     if row is None:
         raise RuntimeError(f"agent {agent_id} not found")
     return dict(row)
@@ -133,9 +138,7 @@ async def handle_inbound(fields: dict[str, str]) -> None:
         api.AccessToken(settings.livekit_api_key, settings.livekit_api_secret)
         .with_identity(f"agent-{call_id}")
         .with_grants(
-            api.VideoGrants(
-                room_join=True, room=room_name, can_publish=True, can_subscribe=True
-            )
+            api.VideoGrants(room_join=True, room=room_name, can_publish=True, can_subscribe=True)
         )
         .to_jwt()
     )
@@ -167,9 +170,7 @@ async def handle_inbound(fields: dict[str, str]) -> None:
         if track.kind == rtc.TrackKind.KIND_AUDIO and participant.identity != f"agent-{call_id}":
             audio_queue.put_nowait(track)
 
-    caller_track: rtc.RemoteAudioTrack = await asyncio.wait_for(
-        audio_queue.get(), timeout=30
-    )
+    caller_track: rtc.RemoteAudioTrack = await asyncio.wait_for(audio_queue.get(), timeout=30)
 
     session = CallSession(ctx)
     try:

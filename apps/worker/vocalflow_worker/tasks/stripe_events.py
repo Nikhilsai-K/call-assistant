@@ -1,4 +1,5 @@
 """Consume vocalflow.stripe.events stream, handle subscription + usage events."""
+
 from __future__ import annotations
 
 import json

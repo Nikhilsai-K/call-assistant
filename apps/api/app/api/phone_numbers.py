@@ -46,7 +46,7 @@ async def provision(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no numbers available")
     bought = client.incoming_phone_numbers.create(
         phone_number=search[0].phone_number,
-        voice_url=f"https://api.vocalflow.app/v1/webhooks/twilio/voice",
+        voice_url="https://api.vocalflow.app/v1/webhooks/twilio/voice",
     )
 
     async with get_session(p.org_id) as session:

@@ -4,6 +4,7 @@ Credential encryption for integrations.
 Production uses AWS KMS envelope encryption; dev uses a Fernet key derived
 from settings.encryption_key. Interface is identical so swapping is trivial.
 """
+
 import base64
 import hashlib
 

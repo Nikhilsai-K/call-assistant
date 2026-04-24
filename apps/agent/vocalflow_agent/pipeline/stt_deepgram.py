@@ -10,6 +10,7 @@ Events are dicts shaped for the session loop:
   { "type": "partial" | "final" | "vad_speech" | "vad_silence",
     "text": str, "confidence": float, "silence_ms": int, ... }
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,8 +19,6 @@ import json
 import time
 from collections.abc import AsyncIterator
 from typing import Any
-
-import httpx
 
 
 class DeepgramStream:
@@ -42,11 +41,11 @@ class DeepgramStream:
         self._listener: asyncio.Task | None = None
         self._last_speech_ts: float = time.perf_counter()
 
-    async def __aenter__(self) -> "DeepgramStream":
+    async def __aenter__(self) -> DeepgramStream:
         # Use websockets via httpx WS if available; otherwise rely on deepgram-sdk.
         # Implementation is pluggable; in tests we override with a fake.
         try:
-            import websockets  # noqa: F401
+            import websockets
         except ImportError as e:  # pragma: no cover
             raise RuntimeError("websockets package required for DeepgramStream") from e
 
@@ -101,16 +100,11 @@ class DeepgramStream:
                 data = json.loads(raw)
                 t = data.get("type")
                 if t == "Results":
-                    alt = (
-                        data.get("channel", {})
-                        .get("alternatives", [{}])[0]
-                    )
+                    alt = data.get("channel", {}).get("alternatives", [{}])[0]
                     text = alt.get("transcript", "")
                     conf = alt.get("confidence", 0.0)
                     is_final = data.get("is_final", False)
-                    silence_ms = int(
-                        (time.perf_counter() - self._last_speech_ts) * 1000
-                    )
+                    silence_ms = int((time.perf_counter() - self._last_speech_ts) * 1000)
                     if text.strip():
                         self._last_speech_ts = time.perf_counter()
                     await self._event_queue.put(
@@ -125,10 +119,8 @@ class DeepgramStream:
                 elif t == "SpeechStarted":
                     await self._event_queue.put({"type": "vad_speech"})
                 elif t == "UtteranceEnd":
-                    await self._event_queue.put(
-                        {"type": "vad_silence", "silence_ms": 0}
-                    )
-        except Exception:  # noqa: BLE001
+                    await self._event_queue.put({"type": "vad_silence", "silence_ms": 0})
+        except Exception:
             pass
         finally:
             await self._event_queue.put({"_sentinel": True})

@@ -5,6 +5,7 @@ JWKS is cached per-process; tokens are verified against Clerk's public keys.
 Dev escape: ENV=development + ENV_BYPASS_AUTH_ORG header enables a test-only
 shortcut. That path is gated so it cannot be enabled in production.
 """
+
 from __future__ import annotations
 
 import time
@@ -62,9 +63,11 @@ async def verify_clerk_jwt(token: str) -> Principal:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"invalid JWT: {e}") from e
 
     user_id = claims.get("sub")
-    org_id = claims.get("org_id") or claims.get("o", {}).get("id") if isinstance(
-        claims.get("o"), dict
-    ) else claims.get("org_id")
+    org_id = (
+        claims.get("org_id") or claims.get("o", {}).get("id")
+        if isinstance(claims.get("o"), dict)
+        else claims.get("org_id")
+    )
     role = claims.get("role") or (claims.get("o") or {}).get("rol", "member")
     if not user_id or not org_id:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing sub/org_id in JWT")

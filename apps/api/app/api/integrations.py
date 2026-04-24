@@ -13,12 +13,27 @@ from app.models import Integration
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
 SUPPORTED = {
-    "google_calendar", "microsoft365", "calendly", "acuity", "cal_com",
-    "hubspot", "gohighlevel", "pipedrive", "salesforce",
-    "jobber", "housecall_pro", "servicetitan",
-    "nexhealth", "drchrono",
-    "slack", "teams", "discord",
-    "stripe", "twilio", "postmark", "resend",
+    "google_calendar",
+    "microsoft365",
+    "calendly",
+    "acuity",
+    "cal_com",
+    "hubspot",
+    "gohighlevel",
+    "pipedrive",
+    "salesforce",
+    "jobber",
+    "housecall_pro",
+    "servicetitan",
+    "nexhealth",
+    "drchrono",
+    "slack",
+    "teams",
+    "discord",
+    "stripe",
+    "twilio",
+    "postmark",
+    "resend",
 }
 
 
@@ -81,7 +96,5 @@ async def list_integrations(
     p: Principal = Depends(current_principal),
 ) -> list[IntegrationRead]:
     async with get_session(p.org_id) as s:
-        res = await s.execute(
-            select(Integration).where(Integration.org_id == UUID(p.org_id))
-        )
+        res = await s.execute(select(Integration).where(Integration.org_id == UUID(p.org_id)))
         return [IntegrationRead.model_validate(i) for i in res.scalars().all()]

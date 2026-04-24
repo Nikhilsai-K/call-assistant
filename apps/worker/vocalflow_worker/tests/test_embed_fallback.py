@@ -1,4 +1,5 @@
 """Deterministic fake embeddings must be stable and correct dim."""
+
 from vocalflow_worker.tasks.kb_index import EMBED_DIM, _embed
 
 

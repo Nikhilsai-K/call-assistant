@@ -1,8 +1,7 @@
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
 
 from app.core.auth import Principal, current_principal
 from app.db.session import get_session

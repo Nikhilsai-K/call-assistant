@@ -3,11 +3,8 @@ Scripted end-to-end run of CallSession with injected fake STT/LLM/TTS.
 Validates the state machine: greeting → partial+endpoint → LLM → TTS,
 and that a barge-in cancels the agent speech task.
 """
-from __future__ import annotations
 
-import asyncio
-from collections.abc import AsyncIterator
-from typing import Any
+from __future__ import annotations
 
 import pytest
 

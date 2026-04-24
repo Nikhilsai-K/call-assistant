@@ -5,6 +5,7 @@ and asserts p95 end-to-end < 500ms. Fails CI on regression.
 The real stack uses streaming APIs; this test uses instrumented fakes that
 encode realistic per-leg distributions captured from production traces.
 """
+
 from __future__ import annotations
 
 import asyncio

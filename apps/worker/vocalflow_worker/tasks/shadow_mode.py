@@ -11,6 +11,7 @@ This task runs nightly on a business's shadow-mode calls, extracting:
 Outputs propose diffs to the agent's KB, shown in the dashboard for one-click
 approval. Nothing auto-merges.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -32,9 +33,10 @@ _Session = sessionmaker(bind=_engine, expire_on_commit=False)
 @shared_task(name="vocalflow_worker.tasks.shadow_mode.digest_org")
 def digest_org(org_id: str) -> dict[str, Any]:
     with _Session() as s:
-        rows = s.execute(
-            text(
-                """
+        rows = (
+            s.execute(
+                text(
+                    """
                 SELECT ct.text, ct.speaker
                 FROM call_transcripts ct
                 JOIN calls c ON c.id = ct.call_id
@@ -43,9 +45,12 @@ def digest_org(org_id: str) -> dict[str, Any]:
                 ORDER BY ct.start_ms ASC
                 LIMIT 5000
                 """
-            ),
-            {"o": org_id},
-        ).mappings().all()
+                ),
+                {"o": org_id},
+            )
+            .mappings()
+            .all()
+        )
     convo = "\n".join(f"{r['speaker']}: {r['text']}" for r in rows)
     if not convo.strip() or not settings.anthropic_api_key:
         return {"proposals": []}

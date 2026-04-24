@@ -2,6 +2,7 @@
 CRM sync — fan-out per installed provider. Idempotent: upsert contact by phone,
 log activity keyed by call_id.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -22,14 +23,18 @@ _Session = sessionmaker(bind=_engine, expire_on_commit=False)
 @shared_task(bind=True, name="vocalflow_worker.tasks.crm_sync.sync_contact")
 def sync_contact(self, call_id: str, summary: dict[str, Any]) -> dict[str, Any]:
     with _Session() as s:
-        row = s.execute(
-            text(
-                """SELECT c.org_id, c.from_e164, c.direction, a.name AS agent_name
+        row = (
+            s.execute(
+                text(
+                    """SELECT c.org_id, c.from_e164, c.direction, a.name AS agent_name
                 FROM calls c LEFT JOIN agents a ON a.id = c.agent_id
                 WHERE c.id = :id"""
-            ),
-            {"id": call_id},
-        ).mappings().one_or_none()
+                ),
+                {"id": call_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
     if row is None:
         return {"ok": False, "reason": "call_not_found"}
 
@@ -39,7 +44,7 @@ def sync_contact(self, call_id: str, summary: dict[str, Any]) -> dict[str, Any]:
     for p in providers:
         try:
             results[p] = _sync_one(p, row, summary)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.exception("crm_sync.provider_failed", provider=p, err=str(e))
             results[p] = {"ok": False, "error": str(e)}
     return {"ok": True, "providers": results}
@@ -47,15 +52,19 @@ def sync_contact(self, call_id: str, summary: dict[str, Any]) -> dict[str, Any]:
 
 def _active_providers(org_id: str) -> list[str]:
     with _Session() as s:
-        rows = s.execute(
-            text(
-                """SELECT provider FROM integrations
+        rows = (
+            s.execute(
+                text(
+                    """SELECT provider FROM integrations
                 WHERE org_id = :o AND status = 'active'
                 AND provider IN ('hubspot','gohighlevel','pipedrive','salesforce','jobber','housecall_pro','servicetitan','nexhealth','drchrono')"""
-            ),
-            {"o": org_id},
-        ).scalars().all()
-    return [r for r in rows]
+                ),
+                {"o": org_id},
+            )
+            .scalars()
+            .all()
+        )
+    return list(rows)
 
 
 def _sync_one(provider: str, call_row: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:

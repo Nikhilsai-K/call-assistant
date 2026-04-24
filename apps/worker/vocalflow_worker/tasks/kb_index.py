@@ -2,6 +2,7 @@
 KB ingestion: PDF / DOCX / HTML URL → chunks → embeddings → Qdrant + BM25 (Postgres tsvector).
 Incremental: checksums on documents so URL re-crawl skips unchanged pages.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -33,7 +34,7 @@ EMBED_DIM = 1024  # cohere embed-v3
 def _ensure_collection() -> None:
     try:
         _qdrant.get_collection(COLLECTION)
-    except Exception:  # noqa: BLE001
+    except Exception:
         _qdrant.create_collection(
             collection_name=COLLECTION,
             vectors_config=qm.VectorParams(size=EMBED_DIM, distance=qm.Distance.COSINE),
@@ -84,14 +85,18 @@ def _embed(texts: list[str]) -> list[list[float]]:
 def index_document(self, doc_id: str) -> dict[str, Any]:
     _ensure_collection()
     with _Session() as s:
-        row = s.execute(
-            text(
-                """SELECT d.id, d.title, d.content, d.kb_id, kb.org_id
+        row = (
+            s.execute(
+                text(
+                    """SELECT d.id, d.title, d.content, d.kb_id, kb.org_id
                 FROM kb_documents d JOIN knowledge_bases kb ON kb.id = d.kb_id
                 WHERE d.id = :id"""
-            ),
-            {"id": doc_id},
-        ).mappings().one_or_none()
+                ),
+                {"id": doc_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
     if row is None:
         return {"ok": False, "reason": "not_found"}
 

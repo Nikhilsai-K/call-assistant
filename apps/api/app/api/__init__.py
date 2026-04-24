@@ -1,6 +1,17 @@
 from fastapi import APIRouter
 
-from . import agents, analytics, calls, campaigns, dnc, integrations, kb, phone_numbers, tools, webhooks
+from . import (
+    agents,
+    analytics,
+    calls,
+    campaigns,
+    dnc,
+    integrations,
+    kb,
+    phone_numbers,
+    tools,
+    webhooks,
+)
 
 api_router = APIRouter(prefix="/v1")
 

@@ -2,7 +2,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
 
 from app.core.auth import Principal, current_principal
 from app.db.session import get_session
@@ -46,9 +45,7 @@ async def create_campaign(
 
 
 @router.post("/{campaign_id}/start", status_code=status.HTTP_202_ACCEPTED)
-async def start_campaign(
-    campaign_id: UUID, p: Principal = Depends(current_principal)
-) -> dict:
+async def start_campaign(campaign_id: UUID, p: Principal = Depends(current_principal)) -> dict:
     async with get_session(p.org_id) as s:
         c = await s.get(Campaign, campaign_id)
         if c is None or str(c.org_id) != p.org_id:

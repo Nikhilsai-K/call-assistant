@@ -6,13 +6,14 @@ Zapier) per the spec.
 All endpoints are tenant-scoped via X-Dev-Org / Clerk JWT; every call is
 audit-logged to Langfuse and the `call_events` table.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -36,10 +37,7 @@ async def calendar_availability(
     # Production: fan to active calendar integration adapter. Fallback: synthesize
     # 3 plausible slots so the agent demo works end-to-end without OAuth.
     start = datetime.fromisoformat(body.date_range["start"].replace("Z", "+00:00"))
-    slots = [
-        (start + timedelta(days=d, hours=h)).isoformat()
-        for d, h in [(0, 2), (0, 5), (1, 1)]
-    ]
+    slots = [(start + timedelta(days=d, hours=h)).isoformat() for d, h in [(0, 2), (0, 5), (1, 1)]]
     return {"slots": [{"start": s, "duration_min": 60} for s in slots]}
 
 
@@ -138,9 +136,7 @@ class PaymentReq(BaseModel):
 
 
 @router.post("/payments/link")
-async def payments_link(
-    body: PaymentReq, p: Principal = Depends(current_principal)
-) -> dict:
+async def payments_link(body: PaymentReq, p: Principal = Depends(current_principal)) -> dict:
     # Production: Stripe checkout session + SMS.
     return {
         "payment_link": f"https://pay.vocalflow.app/demo/{body.amount_cents}",
@@ -165,9 +161,7 @@ class CallbackReq(BaseModel):
 
 
 @router.post("/callback")
-async def callback(
-    body: CallbackReq, p: Principal = Depends(current_principal)
-) -> dict:
+async def callback(body: CallbackReq, p: Principal = Depends(current_principal)) -> dict:
     return {"scheduled": True, "when": body.when.isoformat()}
 
 
@@ -193,15 +187,16 @@ async def kb_query(body: KbQueryReq, p: Principal = Depends(current_principal)) 
         q = (
             select(KbDocument.title, KbDocument.content)
             .where(KbDocument.kb_id == UUID(body.kb_id))
-            .where(
-                _f.plainto_tsquery("english", body.query).op("@@")(KbDocument.content_tsv)
-            )
+            .where(_f.plainto_tsquery("english", body.query).op("@@")(KbDocument.content_tsv))
             .limit(5)
         )
         rows = (await s.execute(q)).all()
     return {
         "chunks": [
-            {"title": r.title, "snippet": (r.content[:400] + "…") if len(r.content) > 400 else r.content}
+            {
+                "title": r.title,
+                "snippet": (r.content[:400] + "…") if len(r.content) > 400 else r.content,
+            }
             for r in rows
         ]
     }

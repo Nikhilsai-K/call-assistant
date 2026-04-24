@@ -8,9 +8,9 @@ Design:
    can start playback immediately. Tool execution happens on the caller side.
  - Cancellation: the caller cancels the task on barge-in; this cleanly flushes.
 """
+
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -99,7 +99,11 @@ class ClaudeStreamer:
                     import json as _json
 
                     try:
-                        input_obj = _json.loads("".join(current_tool_input_buf)) if current_tool_input_buf else {}
+                        input_obj = (
+                            _json.loads("".join(current_tool_input_buf))
+                            if current_tool_input_buf
+                            else {}
+                        )
                     except _json.JSONDecodeError:
                         input_obj = {}
                     yield TokenChunk(
