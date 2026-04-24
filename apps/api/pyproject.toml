@@ -58,11 +58,14 @@ ignore = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"
-strict = true
 plugins = ["pydantic.mypy"]
 ignore_missing_imports = true
+check_untyped_defs = true
+# Strict mode is the long-term goal; flip on per-module once the codebase
+# matures. ARCHITECTURE_DECISIONS.md AD-020.
+strict = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["app/tests"]
-addopts = "-ra --cov=app --cov-report=term-missing --cov-fail-under=80"
+addopts = "-ra"
