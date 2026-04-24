@@ -22,8 +22,19 @@ from ..config import settings
 
 log = structlog.get_logger("kb_index")
 
-_engine = create_engine(settings.database_url_sync, pool_pre_ping=True)
-_Session = sessionmaker(bind=_engine, expire_on_commit=False)
+_engine = None
+_Session = None
+
+
+def _get_session():
+    """Lazy DB session — kb_index._embed must import without a DB present."""
+    global _engine, _Session
+    if _Session is None:
+        _engine = create_engine(settings.database_url_sync, pool_pre_ping=True)
+        _Session = sessionmaker(bind=_engine, expire_on_commit=False)
+    return _Session()
+
+
 _redis = redis.from_url(settings.redis_url, decode_responses=True)
 _qdrant = QdrantClient(url=settings.qdrant_url)
 
@@ -84,7 +95,7 @@ def _embed(texts: list[str]) -> list[list[float]]:
 @shared_task(bind=True, name="vocalflow_worker.tasks.kb_index.index_document")
 def index_document(self, doc_id: str) -> dict[str, Any]:
     _ensure_collection()
-    with _Session() as s:
+    with _get_session() as s:
         row = (
             s.execute(
                 text(

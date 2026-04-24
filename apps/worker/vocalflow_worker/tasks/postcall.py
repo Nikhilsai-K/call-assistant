@@ -28,8 +28,18 @@ from ..config import settings
 
 log = structlog.get_logger("postcall")
 
-_engine = create_engine(settings.database_url_sync, pool_pre_ping=True)
-_Session = sessionmaker(bind=_engine, expire_on_commit=False)
+_engine = None
+_Session = None
+
+
+def _get_session():
+    global _engine, _Session
+    if _Session is None:
+        _engine = create_engine(settings.database_url_sync, pool_pre_ping=True)
+        _Session = sessionmaker(bind=_engine, expire_on_commit=False)
+    return _Session()
+
+
 _redis = redis.from_url(settings.redis_url, decode_responses=True)
 
 SUMMARY_SYSTEM = """You generate structured post-call summaries for voice agent calls.
@@ -75,7 +85,7 @@ def redrive() -> int:
 
 
 def _stitch_transcript(call_id: str) -> list[dict[str, Any]]:
-    with _Session() as s:
+    with _get_session() as s:
         rows = (
             s.execute(
                 text(
@@ -131,7 +141,7 @@ def _summarize(transcript: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _apply_summary(call_id: str, summary: dict[str, Any]) -> None:
-    with _Session() as s:
+    with _get_session() as s:
         s.execute(
             text(
                 """
@@ -160,7 +170,7 @@ def _compute_cost(call_id: str) -> None:
     tts = int(rates.get("tts_cents", 0) or 0)
     twilio = int(rates.get("twilio_cents", 0) or 0)
     total = stt + llm + tts + twilio
-    with _Session() as s:
+    with _get_session() as s:
         s.execute(
             text(
                 """
@@ -214,7 +224,7 @@ def _maybe_judge_quality(self, call_id: str) -> None:
         obj = json.loads(raw[start:end])
     except (ValueError, json.JSONDecodeError):
         return
-    with _Session() as s:
+    with _get_session() as s:
         s.execute(
             text("UPDATE calls SET quality_score = :q WHERE id = :id"),
             {"id": call_id, "q": float(obj.get("overall", 0))},

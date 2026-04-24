@@ -26,13 +26,21 @@ from ..config import settings
 
 log = structlog.get_logger("shadow")
 
-_engine = create_engine(settings.database_url_sync, pool_pre_ping=True)
-_Session = sessionmaker(bind=_engine, expire_on_commit=False)
+_engine = None
+_Session = None
+
+
+def _get_session():
+    global _engine, _Session
+    if _Session is None:
+        _engine = create_engine(settings.database_url_sync, pool_pre_ping=True)
+        _Session = sessionmaker(bind=_engine, expire_on_commit=False)
+    return _Session()
 
 
 @shared_task(name="vocalflow_worker.tasks.shadow_mode.digest_org")
 def digest_org(org_id: str) -> dict[str, Any]:
-    with _Session() as s:
+    with _get_session() as s:
         rows = (
             s.execute(
                 text(

@@ -5,7 +5,7 @@ class WorkerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     redis_url: str = "redis://localhost:6379/0"
-    database_url_sync: str = "postgresql://vocalflow:vocalflow@localhost:5432/vocalflow"
+    database_url_sync: str = "postgresql+psycopg://vocalflow:vocalflow@localhost:5432/vocalflow"
 
     anthropic_api_key: str = ""
     llm_model_postcall: str = "claude-sonnet-4-5"

@@ -16,13 +16,21 @@ from ..config import settings
 
 log = structlog.get_logger("crm_sync")
 
-_engine = create_engine(settings.database_url_sync, pool_pre_ping=True)
-_Session = sessionmaker(bind=_engine, expire_on_commit=False)
+_engine = None
+_Session = None
+
+
+def _get_session():
+    global _engine, _Session
+    if _Session is None:
+        _engine = create_engine(settings.database_url_sync, pool_pre_ping=True)
+        _Session = sessionmaker(bind=_engine, expire_on_commit=False)
+    return _Session()
 
 
 @shared_task(bind=True, name="vocalflow_worker.tasks.crm_sync.sync_contact")
 def sync_contact(self, call_id: str, summary: dict[str, Any]) -> dict[str, Any]:
-    with _Session() as s:
+    with _get_session() as s:
         row = (
             s.execute(
                 text(
@@ -51,7 +59,7 @@ def sync_contact(self, call_id: str, summary: dict[str, Any]) -> dict[str, Any]:
 
 
 def _active_providers(org_id: str) -> list[str]:
-    with _Session() as s:
+    with _get_session() as s:
         rows = (
             s.execute(
                 text(
