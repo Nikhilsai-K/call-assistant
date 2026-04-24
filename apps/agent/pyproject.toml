@@ -1,0 +1,46 @@
+[project]
+name = "vocalflow-agent"
+version = "0.1.0"
+description = "VocalFlow real-time voice agent (LiveKit)"
+requires-python = ">=3.11"
+dependencies = [
+    "livekit>=0.17.0",
+    "livekit-agents[deepgram,elevenlabs,cartesia,silero]>=0.11.0",
+    "anthropic>=0.40.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    "httpx>=0.28.0",
+    "redis>=5.2.0",
+    "asyncpg>=0.30.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "langfuse>=2.52.0",
+    "boto3>=1.35.0",
+    "numpy>=2.1.0",
+    "structlog>=24.4.0",
+    "orjson>=3.10.0",
+    "phonenumbers>=8.13.0",
+    "qdrant-client>=1.12.0",
+    "cohere>=5.11.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["vocalflow_agent/tests"]
+addopts = "-ra --cov=vocalflow_agent --cov-report=term-missing"

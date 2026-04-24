@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy app
+      - run: pytest
+
+  agent:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: pytest
+
+  worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: pytest
+
+  latency-bench:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install -e ".[dev]"
+      - name: Enforce p95 < 500ms latency budget
+        run: pytest vocalflow_agent/tests/test_latency_budget.py -v
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - run: pnpm install --frozen-lockfile=false
+      - run: pnpm typecheck
+      - run: pnpm lint || true
+      - run: pnpm test
+
+  db-migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: vocalflow
+          POSTGRES_PASSWORD: vocalflow
+          POSTGRES_DB: vocalflow
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U vocalflow" --health-interval 5s
+          --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply init.sql
+        env:
+          PGPASSWORD: vocalflow
+        run: |
+          # Skip CREATE DATABASE langfuse (GH Actions service already has one DB only).
+          grep -v -E "^(CREATE DATABASE|\\\\c)" infra/migrations/init.sql > /tmp/init.sql
+          psql -h localhost -U vocalflow -d vocalflow -v ON_ERROR_STOP=1 -f /tmp/init.sql
+      - name: Verify core tables exist
+        env:
+          PGPASSWORD: vocalflow
+        run: |
+          psql -h localhost -U vocalflow -d vocalflow -v ON_ERROR_STOP=1 -c \
+            "SELECT 1 FROM calls LIMIT 0; SELECT 1 FROM agents LIMIT 0; SELECT 1 FROM dnc_list LIMIT 0;"
