@@ -1,9 +1,12 @@
+import hashlib
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import boto3
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from app.core.auth import Principal, current_principal
+from app.core.config import get_settings
 from app.db.session import get_session
 from app.models import KbDocument, KnowledgeBase
 
@@ -76,6 +79,53 @@ async def add_document(
         )
         await r.aclose()
         return {"id": str(doc.id), "queued": True}
+
+
+@router.post("/{kb_id}/upload", status_code=status.HTTP_202_ACCEPTED)
+async def upload_document(
+    kb_id: UUID,
+    file: UploadFile = File(...),
+    p: Principal = Depends(current_principal),
+) -> dict:
+    """PDF / DOCX / TXT upload. File goes to S3, then a worker job parses +
+    chunks + embeds it."""
+    s = get_settings()
+    raw = await file.read()
+    if len(raw) > 25 * 1024 * 1024:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "max 25 MB")
+
+    checksum = hashlib.sha256(raw).hexdigest()
+    s3_key = f"kb/{p.org_id}/{kb_id}/{checksum}-{file.filename}"
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=s.s3_endpoint_url,
+        region_name=s.s3_region,
+        aws_access_key_id=s.s3_access_key,
+        aws_secret_access_key=s.s3_secret_key,
+    )
+    s3.put_object(Bucket=s.s3_recordings_bucket, Key=s3_key, Body=raw)
+
+    async with get_session(p.org_id) as session:
+        kb = await session.get(KnowledgeBase, kb_id)
+        if kb is None or str(kb.org_id) != p.org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND)
+
+    import redis.asyncio as aioredis
+
+    r = aioredis.from_url(s.redis_url, decode_responses=True)
+    await r.xadd(
+        "vocalflow.kb.parse",
+        {
+            "kb_id": str(kb_id),
+            "org_id": p.org_id,
+            "s3_key": s3_key,
+            "filename": file.filename or "upload",
+            "content_type": file.content_type or "application/octet-stream",
+            "checksum": checksum,
+        },
+    )
+    await r.aclose()
+    return {"queued": True, "s3_key": s3_key, "checksum": checksum}
 
 
 @router.post("/{kb_id}/sync", status_code=status.HTTP_202_ACCEPTED)

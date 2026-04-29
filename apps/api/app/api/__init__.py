@@ -11,6 +11,7 @@ from . import (
     phone_numbers,
     tools,
     webhooks,
+    widget,
 )
 
 api_router = APIRouter(prefix="/v1")
@@ -25,3 +26,4 @@ api_router.include_router(dnc.router)
 api_router.include_router(analytics.router)
 api_router.include_router(tools.router)
 api_router.include_router(webhooks.router)
+api_router.include_router(widget.router)

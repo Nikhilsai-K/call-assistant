@@ -9,9 +9,11 @@ celery_app = Celery(
     include=[
         "vocalflow_worker.tasks.postcall",
         "vocalflow_worker.tasks.kb_index",
+        "vocalflow_worker.tasks.kb_ingest",
         "vocalflow_worker.tasks.stripe_events",
         "vocalflow_worker.tasks.crm_sync",
         "vocalflow_worker.tasks.shadow_mode",
+        "vocalflow_worker.tasks.callbacks",
     ],
 )
 celery_app.conf.update(
@@ -31,6 +33,18 @@ celery_app.conf.update(
         "redrive-kb-index": {
             "task": "vocalflow_worker.tasks.kb_index.redrive",
             "schedule": 10.0,
+        },
+        "redrive-kb-ingest": {
+            "task": "vocalflow_worker.tasks.kb_ingest.redrive",
+            "schedule": 15.0,
+        },
+        "fire-due-callbacks": {
+            "task": "vocalflow_worker.tasks.callbacks.fire_due",
+            "schedule": 60.0,
+        },
+        "stripe-events": {
+            "task": "vocalflow_worker.tasks.stripe_events.process",
+            "schedule": 30.0,
         },
     },
 )

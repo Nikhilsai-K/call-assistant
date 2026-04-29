@@ -64,7 +64,7 @@ async def twilio_voice(request: Request) -> Response:
     await redis.aclose()
 
     # Stream Twilio's media into LiveKit via the <Connect><Stream/>... bridge.
-    stream_url = f"wss://media.vocalflow.app/twilio-bridge/{room}"
+    stream_url = f"{settings.bridge_public_url}/twilio-bridge/{room}"
     twiml = (
         "<Response>"
         f'<Connect><Stream url="{stream_url}">'
@@ -78,8 +78,37 @@ async def twilio_voice(request: Request) -> Response:
 
 @router.post("/twilio/sms")
 async def twilio_sms(request: Request) -> Response:
-    # Placeholder — SMS intake for reschedule flows.
+    """Inbound SMS — record + forward to the org's Slack/Teams + persist for review."""
+    settings = get_settings()
+    form = dict(await request.form())
+    redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+    await redis.xadd(
+        "vocalflow.inbound.sms",
+        {
+            "from": form.get("From", ""),
+            "to": form.get("To", ""),
+            "body": form.get("Body", ""),
+            "sid": form.get("MessageSid", ""),
+        },
+    )
+    await redis.aclose()
     return Response(content="<Response/>", media_type="application/xml")
+
+
+@router.api_route("/twilio/outbound-bridge", methods=["GET", "POST"])
+async def twilio_outbound_bridge(request: Request) -> Response:
+    """TwiML for outbound dialer: bridges the called party into a LiveKit room."""
+    settings = get_settings()
+    room = request.query_params.get("room", "out-unknown")
+    stream_url = f"{settings.bridge_public_url}/twilio-bridge/{room}"
+    twiml = (
+        "<Response>"
+        f'<Connect><Stream url="{stream_url}">'
+        f'<Parameter name="room" value="{room}"/>'
+        "</Stream></Connect>"
+        "</Response>"
+    )
+    return Response(content=twiml, media_type="application/xml")
 
 
 @router.post("/stripe")

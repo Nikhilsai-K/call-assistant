@@ -28,6 +28,26 @@ class Settings(BaseSettings):
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_sip_domain: str = ""
+    twilio_from_number: str = ""
+
+    # Public URL of the Twilio↔LiveKit bridge (wss://...).
+    bridge_public_url: str = "wss://media.vocalflow.app"
+
+    # Postmark + Resend (transactional + fallback email).
+    postmark_api_token: str = ""
+    postmark_from_email: str = "no-reply@vocalflow.app"
+    resend_api_key: str = ""
+
+    # Google Calendar OAuth (per-org tokens live in integrations table).
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+
+    # HubSpot OAuth.
+    hubspot_client_id: str = ""
+    hubspot_client_secret: str = ""
+
+    # Public dashboard URL (used for embed widget links + payment confirmations).
+    public_dashboard_url: str = "http://localhost:3000"
 
     anthropic_api_key: str = ""
     deepgram_api_key: str = ""

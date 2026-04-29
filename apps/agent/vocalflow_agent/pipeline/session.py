@@ -304,6 +304,28 @@ class CallSession:
                             "result": tool_result,
                         },
                     )
+                    # Warm Handoff 2.0: when transfer_to_human fires, generate
+                    # the 20-second spoken brief and stash it in Redis so the
+                    # human accepting the call hears it before the customer is
+                    # bridged in.
+                    if chunk.tool_name == "transfer_to_human":
+                        try:
+                            brief = await self._llm.generate_handoff_brief(
+                                [
+                                    {"speaker": h.get("role"), "text": h.get("content", "")}
+                                    for h in self._history
+                                    if isinstance(h.get("content"), str)
+                                ],
+                                reason=(chunk.tool_input or {}).get("reason", ""),
+                            )
+                            await self._redis.set(
+                                f"vocalflow.calls.{self.ctx.call_id}.handoff_brief",
+                                brief,
+                                ex=3600,
+                            )
+                            await self._log_event("handoff_brief", {"text": brief})
+                        except Exception as e:
+                            log.warn("handoff_brief.failed", err=str(e))
                     # After a tool, loop the LLM once more to verbalize the result.
                     asyncio.create_task(self._generate_and_speak(audio_out, marks))
                     return

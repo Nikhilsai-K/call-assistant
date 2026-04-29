@@ -77,6 +77,32 @@ async def outbound_loop() -> None:
                     log.exception("outbound.failed", msg_id=msg_id, err=str(e))
 
 
+async def widget_loop() -> None:
+    """Spawn an agent into LiveKit rooms requested by the public widget."""
+    r = aioredis.from_url(settings.redis_url, decode_responses=True)
+    stream = "vocalflow.inbound.widget"
+    group = "agent-workers-widget"
+    consumer = f"agent-web-{uuid4().hex[:6]}"
+    try:
+        await r.xgroup_create(stream, group, id="0", mkstream=True)
+    except Exception:
+        pass
+
+    log.info("widget_loop.started", consumer=consumer)
+    while True:
+        resp = await r.xreadgroup(group, consumer, {stream: ">"}, count=1, block=5000)
+        if not resp:
+            continue
+        for _, entries in resp:
+            for msg_id, fields in entries:
+                try:
+                    # Same handler as PSTN — fields carry org_id, agent_id, room.
+                    await handle_inbound({**fields, "from": "widget", "to": "widget"})
+                    await r.xack(stream, group, msg_id)
+                except Exception as e:
+                    log.exception("widget.failed", msg_id=msg_id, err=str(e))
+
+
 async def main() -> None:
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -85,6 +111,7 @@ async def main() -> None:
     tasks = [
         asyncio.create_task(inbound_loop()),
         asyncio.create_task(outbound_loop()),
+        asyncio.create_task(widget_loop()),
     ]
     await stop.wait()
     for t in tasks:

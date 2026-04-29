@@ -6,10 +6,12 @@ Voice AI agent platform for SMB service businesses — sub-500ms latency, native
 
 ```
 apps/
-  api/      FastAPI control plane (agents, calls, KB, integrations, webhooks)
+  api/      FastAPI control plane (agents, calls, KB, integrations, webhooks, tools)
   agent/    LiveKit Agents runtime (streaming STT->LLM->TTS loop, barge-in)
-  worker/   Celery post-call pipeline (redaction, summary, CRM sync, KB index)
+  bridge/   Twilio Media Streams <-> LiveKit audio bridge (µ-law <-> PCM)
+  worker/   Celery post-call pipeline (redaction, summary, CRM sync, KB index/ingest, callbacks)
   web/      Next.js 15 dashboard (live transcript, supervisor, agent designer)
+  widget/   Embeddable <script> for any customer website
 infra/
   migrations/    Postgres + TimescaleDB schema
   terraform/     Fly.io / Cloudflare IaC (placeholders for V1)
