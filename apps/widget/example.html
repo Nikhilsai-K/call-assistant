@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VocalFlow widget — example</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        max-width: 640px;
+        margin: 60px auto;
+        padding: 0 20px;
+        color: #111;
+        line-height: 1.5;
+      }
+      code {
+        background: #f3f4f6;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Mike's HVAC</h1>
+    <p>
+      Got an emergency, need a tune-up, or want to ask about pricing? Click the
+      <strong>microphone button</strong> in the bottom right and start talking — we'll
+      pick up immediately, 24/7.
+    </p>
+    <p>
+      To embed on your own site, paste:
+      <br />
+      <code>
+        &lt;script src="https://cdn.vocalflow.app/widget.js" data-agent-id="..."
+        data-api-base="https://api.vocalflow.app" defer&gt;&lt;/script&gt;
+      </code>
+    </p>
+
+    <!-- Replace with your real agent_id and api base -->
+    <script
+      src="./dist/widget.js"
+      data-agent-id="00000000-0000-0000-0000-000000000000"
+      data-api-base="http://localhost:8000"
+      defer
+    ></script>
+  </body>
+</html>

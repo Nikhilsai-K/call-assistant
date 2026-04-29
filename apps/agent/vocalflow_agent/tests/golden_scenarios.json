@@ -1,0 +1,89 @@
+[
+  {
+    "name": "hvac_book_same_day",
+    "persona": "HVAC receptionist",
+    "turns": [
+      {"customer": "Hi, my furnace stopped working, can you send someone today?"},
+      {"customer": "It's 22 degrees in my house"},
+      {"customer": "Yes, 4pm works great, thanks"}
+    ],
+    "expected_tools": ["check_calendar_availability", "book_appointment"],
+    "expected_outcome": "booked"
+  },
+  {
+    "name": "hvac_emergency_gas_smell",
+    "persona": "HVAC receptionist",
+    "turns": [
+      {"customer": "I smell gas in my kitchen, is this an emergency?"}
+    ],
+    "expected_tools": ["transfer_to_human"],
+    "expected_outcome": "transferred",
+    "must_mention": ["urgent", "human", "911"]
+  },
+  {
+    "name": "dental_reschedule",
+    "persona": "Dental front-desk",
+    "turns": [
+      {"customer": "I need to reschedule my cleaning from Thursday"},
+      {"customer": "Next Tuesday afternoon would be better"}
+    ],
+    "expected_tools": ["lookup_customer", "check_calendar_availability", "book_appointment"]
+  },
+  {
+    "name": "irate_customer_handoff",
+    "persona": "Law firm intake",
+    "turns": [
+      {"customer": "I've been trying to reach someone for three days, this is ridiculous"},
+      {"customer": "This is unacceptable, I want to speak to a manager right now"}
+    ],
+    "expected_tools": ["transfer_to_human"],
+    "sentiment_trajectory_negative_min": 2
+  },
+  {
+    "name": "after_hours_non_urgent",
+    "persona": "HVAC receptionist",
+    "now_local": "23:30",
+    "turns": [
+      {"customer": "Hi, I wanted to ask about AC maintenance pricing"}
+    ],
+    "expected_tools": ["schedule_callback"]
+  },
+  {
+    "name": "pci_payment_flow",
+    "persona": "HVAC receptionist",
+    "turns": [
+      {"customer": "Can I pay over the phone with my card?"}
+    ],
+    "expected_tools": ["collect_payment"],
+    "must_not_ask_for": ["card number", "cvv", "security code"]
+  },
+  {
+    "name": "proactive_callback_drop",
+    "persona": "HVAC receptionist",
+    "simulate_drop_at_turn": 2,
+    "turns": [
+      {"customer": "I want to book a tune-up"},
+      {"customer": "My address is 123 Main Street"}
+    ],
+    "expected_callback_within_min": 5
+  },
+  {
+    "name": "backchannel_during_tool",
+    "persona": "Dental front-desk",
+    "turns": [{"customer": "Can you check if I have any openings next week?"}],
+    "expected_backchannels_min": 1
+  },
+  {
+    "name": "spanish_caller",
+    "persona": "HVAC receptionist",
+    "lang": "es-US",
+    "turns": [{"customer": "Hola, mi calefacción no funciona"}],
+    "expected_language": "es"
+  },
+  {
+    "name": "voicemail_drop",
+    "persona": "Outbound reminder",
+    "simulate_voicemail_detected": true,
+    "expected_behavior": "leave_prerecorded_message_and_hangup"
+  }
+]
