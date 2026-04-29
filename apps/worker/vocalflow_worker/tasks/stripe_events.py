@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import json
 
-import redis
 import structlog
 from celery import shared_task
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from ..config import settings
+from ..redis_helpers import drain_stream
 
 log = structlog.get_logger("stripe_events")
-_redis = redis.from_url(settings.redis_url, decode_responses=True)
 
 _engine = None
 _Session = None
@@ -30,16 +29,13 @@ def _get_session():
 @shared_task(name="vocalflow_worker.tasks.stripe_events.process")
 def process() -> int:
     count = 0
-    while True:
-        entries = _redis.xread({"vocalflow.stripe.events": "0"}, count=10, block=100)
-        if not entries:
-            break
-        for _, batch in entries:
-            for msg_id, fields in batch:
-                event = json.loads(fields["event"])
-                _handle(event)
-                _redis.xdel("vocalflow.stripe.events", msg_id)
-                count += 1
+    for _msg_id, fields in drain_stream("vocalflow.stripe.events", batch=10):
+        try:
+            event = json.loads(fields["event"])
+        except (KeyError, json.JSONDecodeError):
+            continue
+        _handle(event)
+        count += 1
     return count
 
 

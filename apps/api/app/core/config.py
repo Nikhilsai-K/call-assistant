@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
 
+    slack_signing_secret: str = ""
+
+    # Public API URL used to build Twilio voice webhook URLs etc.
+    public_api_url: str = "https://api.vocalflow.app"
+
     encryption_key: str = "dev-32-byte-key-replace-in-prod-plz"
 
     feature_semantic_endpointing: bool = True
@@ -86,6 +91,22 @@ class Settings(BaseSettings):
     posthog_key: str = ""
 
 
+_DEV_KEY_MARKER = "dev-32-byte-key"
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    # Fail-closed if the dev encryption key is shipped to production.
+    if s.env == "production" and _DEV_KEY_MARKER in s.encryption_key:
+        raise RuntimeError(
+            "Refusing to start: ENCRYPTION_KEY is the dev default. Set a real "
+            "32+ byte secret in the production environment."
+        )
+    if s.env == "production" and not s.twilio_auth_token and s.twilio_account_sid:
+        raise RuntimeError(
+            "Refusing to start: TWILIO_AUTH_TOKEN must be set when "
+            "TWILIO_ACCOUNT_SID is set in production (signature verification "
+            "would silently no-op)."
+        )
+    return s

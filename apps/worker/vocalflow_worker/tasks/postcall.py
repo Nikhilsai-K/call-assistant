@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import redis
 import structlog
 from anthropic import Anthropic
 from celery import shared_task
@@ -25,6 +24,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from ..config import settings
+from ..redis_helpers import drain_stream, get_redis
 
 log = structlog.get_logger("postcall")
 
@@ -40,11 +40,15 @@ def _get_session():
     return _Session()
 
 
-_redis = redis.from_url(settings.redis_url, decode_responses=True)
+def _get_redis():
+    return get_redis()
+
 
 SUMMARY_SYSTEM = """You generate structured post-call summaries for voice agent calls.
 Output JSON with keys:
-  reason (string), outcome (one of: booked|info|transferred|abandoned|voicemail),
+  reason (string),
+  outcome (one of: booked|info|transferred|abandoned|voicemail),
+  caller_name (string — the customer's name if mentioned, else empty),
   action_items (array of strings),
   sentiment_trajectory (array of {ts_ms,score}),
   compliance_flags (array of strings),
@@ -70,17 +74,12 @@ def process(self, call_id: str) -> dict[str, Any]:
 
 @shared_task(name="vocalflow_worker.tasks.postcall.redrive")
 def redrive() -> int:
-    """Pull from Redis stream, dispatch to `process`."""
+    """Pull from Redis stream, dispatch to `process` (cursor-tracked)."""
     count = 0
-    while True:
-        entries = _redis.xread({"vocalflow.postcall.jobs": "0"}, count=10, block=100)
-        if not entries:
-            break
-        for _, batch in entries:
-            for msg_id, fields in batch:
-                process.delay(fields["call_id"])
-                _redis.xdel("vocalflow.postcall.jobs", msg_id)
-                count += 1
+    for _msg_id, fields in drain_stream("vocalflow.postcall.jobs", batch=10):
+        if "call_id" in fields:
+            process.delay(fields["call_id"])
+            count += 1
     return count
 
 
@@ -164,7 +163,7 @@ def _apply_summary(call_id: str, summary: dict[str, Any]) -> None:
 
 def _compute_cost(call_id: str) -> None:
     """Reconcile per-leg cost. Uses rates stored in Redis by the agent process."""
-    rates = _redis.hgetall(f"vocalflow.call_cost.{call_id}") or {}
+    rates = _get_redis().hgetall(f"vocalflow.call_cost.{call_id}") or {}
     stt = int(rates.get("stt_cents", 0) or 0)
     llm = int(rates.get("llm_cents", 0) or 0)
     tts = int(rates.get("tts_cents", 0) or 0)

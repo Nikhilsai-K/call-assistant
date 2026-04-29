@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from app.core.auth import Principal, current_principal
 from app.db.session import get_session
@@ -24,6 +25,13 @@ class CampaignRead(BaseModel):
     quiet_hours_enforced: bool
 
     model_config = {"from_attributes": True}
+
+
+@router.get("", response_model=list[CampaignRead])
+async def list_campaigns(p: Principal = Depends(current_principal)) -> list[CampaignRead]:
+    async with get_session(p.org_id) as s:
+        res = await s.execute(select(Campaign).where(Campaign.org_id == UUID(p.org_id)))
+        return [CampaignRead.model_validate(c) for c in res.scalars().all()]
 
 
 @router.post("", response_model=CampaignRead, status_code=status.HTTP_201_CREATED)

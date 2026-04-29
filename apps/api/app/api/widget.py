@@ -24,6 +24,7 @@ router = APIRouter(prefix="/widget", tags=["widget"])
 
 RATE_LIMIT_PER_MIN = 5  # connects per IP per minute
 RATE_LIMIT_PER_AGENT_PER_HOUR = 60
+RATE_LIMIT_PER_ORG_PER_MIN = 30  # protects org COGS even if attacker rotates agent_ids
 
 
 class WidgetConnectResponse(BaseModel):
@@ -42,6 +43,16 @@ def _client_ip(request: Request) -> str:
     )
 
 
+_RATE_LIMIT_LUA = """
+local key = KEYS[1]
+local cap = tonumber(ARGV[1])
+local ttl = tonumber(ARGV[2])
+local n = redis.call('INCR', key)
+if n == 1 then redis.call('EXPIRE', key, ttl) end
+if n > cap then return 1 else return 0 end
+"""
+
+
 @router.post("/connect/{agent_id}", response_model=WidgetConnectResponse)
 async def connect(agent_id: UUID, request: Request) -> WidgetConnectResponse:
     s = get_settings()
@@ -50,19 +61,7 @@ async def connect(agent_id: UUID, request: Request) -> WidgetConnectResponse:
     now_min = int(time.time() // 60)
     now_hour = int(time.time() // 3600)
 
-    ip_key = f"widget.rl.ip.{ip}.{now_min}"
-    agent_key = f"widget.rl.agent.{agent_id}.{now_hour}"
-    ip_count = await redis.incr(ip_key)
-    if ip_count == 1:
-        await redis.expire(ip_key, 90)
-    agent_count = await redis.incr(agent_key)
-    if agent_count == 1:
-        await redis.expire(agent_key, 3700)
-
-    if ip_count > RATE_LIMIT_PER_MIN or agent_count > RATE_LIMIT_PER_AGENT_PER_HOUR:
-        await redis.aclose()
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "rate_limited")
-
+    # Resolve agent first so we can rate-limit per-org.
     async with get_session() as sess:
         agent = await sess.get(Agent, agent_id)
         if (
@@ -73,10 +72,21 @@ async def connect(agent_id: UUID, request: Request) -> WidgetConnectResponse:
                 and not (agent.business_hours or {}).get("widget_public", False)
             )
         ):
-            # Allow widget if agent is published and has the widget_public flag in
-            # business_hours JSON OR has the explicit "public_widget" pseudo-tool.
             await redis.aclose()
             raise HTTPException(status.HTTP_404_NOT_FOUND, "widget not enabled for this agent")
+
+    org_id = str(agent.org_id)
+
+    # Atomic INCR+EXPIRE per limit, fail-fast on cap breach.
+    for key, cap, ttl in (
+        (f"widget.rl.ip.{ip}.{now_min}", RATE_LIMIT_PER_MIN, 90),
+        (f"widget.rl.agent.{agent_id}.{now_hour}", RATE_LIMIT_PER_AGENT_PER_HOUR, 3700),
+        (f"widget.rl.org.{org_id}.{now_min}", RATE_LIMIT_PER_ORG_PER_MIN, 90),
+    ):
+        breached = await redis.eval(_RATE_LIMIT_LUA, 1, key, cap, ttl)
+        if breached:
+            await redis.aclose()
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "rate_limited")
 
     room = f"web-{agent_id}-{uuid4().hex[:8]}"
     token = mint_access_token(

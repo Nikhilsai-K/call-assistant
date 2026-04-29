@@ -417,10 +417,34 @@ class CallSession:
     async def _log_latency(self, marks: LatencyMarks, usage: dict[str, int]) -> None:
         payload = {"marks": marks.summary_ms(), "usage": usage}
         await self._log_event("latency", payload)
+        # Cost reconciliation. Rough rate cards as of late 2026; ops can override
+        # by setting env vars without touching this code path.
+        # Haiku 4.5 input ~ $1/M, output ~ $5/M; cache hits ~ $0.10/M.
+        in_tok = usage.get("input_tokens", 0)
+        cached_in = usage.get("cache_read_input_tokens", 0)
+        out_tok = usage.get("output_tokens", 0)
+        llm_micros = (
+            (in_tok - cached_in) * 100  # 100 µ¢ / 1M = $1/M, expressed as ¢*1e4 → revisit
+            + cached_in * 10
+            + out_tok * 500
+        )
+        # Convert micro-cents to cents (rounded up).
+        llm_cents = max(0, llm_micros // 1_000_000)
+        await self._redis.hincrby(f"vocalflow.call_cost.{self.ctx.call_id}", "llm_cents", llm_cents)
+        await self._redis.expire(f"vocalflow.call_cost.{self.ctx.call_id}", 86400)
+
         budget = 500
         e2e = marks.summary_ms().get("end_to_end_ms")
         if e2e is not None and e2e > budget:
             log.warn("latency.over_budget", e2e_ms=e2e, budget_ms=budget)
+
+    async def record_cost(self, leg: str, cents: int) -> None:
+        """Public hook for the bridge / TTS / STT layers to push their usage.
+        Worker's _compute_cost reads the same hash."""
+        if cents <= 0:
+            return
+        await self._redis.hincrby(f"vocalflow.call_cost.{self.ctx.call_id}", leg, cents)
+        await self._redis.expire(f"vocalflow.call_cost.{self.ctx.call_id}", 86400)
 
 
 # ---- Audio sink contract ----
@@ -432,7 +456,10 @@ class AudioSink:
 
 
 def _has_sentence_boundary(s: str) -> bool:
-    return any(c in s for c in ".!?") and s.rstrip().endswith(("!", "?", ".", ","))
+    """True only when a complete terminal-punctuation sentence is present.
+    Comma was previously included; that caused mid-clause TTS flushes which
+    audibly chopped the agent's voice."""
+    return s.rstrip().endswith(("!", "?", ".", ":"))
 
 
 def _split_on_last_boundary(s: str) -> tuple[str, str]:

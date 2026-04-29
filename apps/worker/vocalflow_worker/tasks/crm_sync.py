@@ -146,11 +146,18 @@ def _sync_hubspot(
         return {"ok": False, "reason": "no_creds"}
     token = creds["access_token"]
     api = "https://api.hubapi.com"
-    name_parts = (call_row.get("agent_name") or "").split()
+    # CALLER name (not the AI agent's name). If the call captured a name in
+    # outcome_details (set by the post-call summarizer), use it. Otherwise fall
+    # back to "Caller — {last4}" so the CRM record is still searchable.
+    caller_name = (summary.get("caller_name") or "").strip()
+    last4 = phone[-4:] if phone else ""
+    name_parts = (
+        caller_name.split() if caller_name else (["Caller", last4] if last4 else ["Caller"])
+    )
     payload_contact = {
         "properties": {
             "phone": phone,
-            "firstname": name_parts[0] if name_parts else "",
+            "firstname": name_parts[0],
             "lastname": " ".join(name_parts[1:]) if len(name_parts) > 1 else "",
             "lifecyclestage": "lead" if summary.get("qualified_lead") else "subscriber",
         }

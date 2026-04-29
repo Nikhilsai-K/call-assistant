@@ -13,6 +13,9 @@ from app.models import KbDocument, KnowledgeBase
 router = APIRouter(prefix="/kb", tags=["kb"])
 
 
+from sqlalchemy import select  # noqa: E402
+
+
 class KbCreate(BaseModel):
     name: str
     source_type: str  # upload | url | csv
@@ -32,6 +35,13 @@ class KbDocumentCreate(BaseModel):
     title: str
     content: str
     source_url: str | None = None
+
+
+@router.get("", response_model=list[KbRead])
+async def list_kbs(p: Principal = Depends(current_principal)) -> list[KbRead]:
+    async with get_session(p.org_id) as s:
+        res = await s.execute(select(KnowledgeBase).where(KnowledgeBase.org_id == UUID(p.org_id)))
+        return [KbRead.model_validate(k) for k in res.scalars().all()]
 
 
 @router.post("", response_model=KbRead, status_code=status.HTTP_201_CREATED)
@@ -89,6 +99,8 @@ async def upload_document(
 ) -> dict:
     """PDF / DOCX / TXT upload. File goes to S3, then a worker job parses +
     chunks + embeds it."""
+    import asyncio
+
     s = get_settings()
     raw = await file.read()
     if len(raw) > 25 * 1024 * 1024:
@@ -96,14 +108,18 @@ async def upload_document(
 
     checksum = hashlib.sha256(raw).hexdigest()
     s3_key = f"kb/{p.org_id}/{kb_id}/{checksum}-{file.filename}"
-    s3 = boto3.client(
-        "s3",
-        endpoint_url=s.s3_endpoint_url,
-        region_name=s.s3_region,
-        aws_access_key_id=s.s3_access_key,
-        aws_secret_access_key=s.s3_secret_key,
-    )
-    s3.put_object(Bucket=s.s3_recordings_bucket, Key=s3_key, Body=raw)
+
+    def _put() -> None:
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=s.s3_endpoint_url,
+            region_name=s.s3_region,
+            aws_access_key_id=s.s3_access_key,
+            aws_secret_access_key=s.s3_secret_key,
+        )
+        s3.put_object(Bucket=s.s3_recordings_bucket, Key=s3_key, Body=raw)
+
+    await asyncio.to_thread(_put)
 
     async with get_session(p.org_id) as session:
         kb = await session.get(KnowledgeBase, kb_id)

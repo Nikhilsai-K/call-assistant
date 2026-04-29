@@ -24,6 +24,7 @@ async def create_link(
     amount_cents: int,
     description: str,
     customer_email: str | None = None,
+    call_id: str | None = None,
 ) -> dict[str, Any]:
     s = get_settings()
     api_key = s.stripe_secret_key
@@ -39,6 +40,10 @@ async def create_link(
         }
 
     stripe.api_key = api_key
+    metadata: dict[str, str] = {"org_id": str(org_id)}
+    if call_id:
+        metadata["call_id"] = call_id
+
     session_obj = stripe.checkout.Session.create(
         mode="payment",
         line_items=[
@@ -54,7 +59,7 @@ async def create_link(
         success_url=f"{s.public_dashboard_url}/pay/success",
         cancel_url=f"{s.public_dashboard_url}/pay/cancel",
         customer_email=customer_email,
-        expires_at=None,
+        metadata=metadata,
     )
     return {
         "payment_link": session_obj.url,

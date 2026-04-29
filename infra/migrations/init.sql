@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS phone_numbers (
 CREATE INDEX IF NOT EXISTS phone_numbers_org_idx ON phone_numbers(org_id);
 
 -- ========== calls ==========
+-- Hypertable on started_at; we keep a UNIQUE(id) so child FKs can reference id alone.
 CREATE TABLE IF NOT EXISTS calls (
     id UUID NOT NULL DEFAULT uuid_generate_v4(),
     org_id UUID NOT NULL,
@@ -88,17 +89,22 @@ CREATE TABLE IF NOT EXISTS calls (
     livekit_room TEXT,
     langfuse_trace_id TEXT,
     quality_score NUMERIC(3,1),
-    PRIMARY KEY (id, started_at)
+    status TEXT NOT NULL DEFAULT 'pending',
+    PRIMARY KEY (id, started_at),
+    UNIQUE (id)
 );
 SELECT create_hypertable('calls', 'started_at', if_not_exists => TRUE, migrate_data => TRUE);
 CREATE INDEX IF NOT EXISTS calls_org_started_idx ON calls(org_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS calls_agent_idx ON calls(agent_id);
 CREATE INDEX IF NOT EXISTS calls_from_idx ON calls(from_e164);
 CREATE INDEX IF NOT EXISTS calls_outcome_idx ON calls(outcome);
+CREATE INDEX IF NOT EXISTS calls_room_idx ON calls(livekit_room);
 
 -- ========== call_transcripts ==========
 CREATE TABLE IF NOT EXISTS call_transcripts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    call_id UUID NOT NULL,
+    call_id UUID NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
+    org_id UUID NOT NULL,
     speaker TEXT NOT NULL,
     text TEXT NOT NULL,
     start_ms INTEGER NOT NULL,
@@ -108,11 +114,13 @@ CREATE TABLE IF NOT EXISTS call_transcripts (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS call_transcripts_call_idx ON call_transcripts(call_id, start_ms);
+CREATE INDEX IF NOT EXISTS call_transcripts_org_idx ON call_transcripts(org_id);
 
 -- ========== call_events ==========
 CREATE TABLE IF NOT EXISTS call_events (
     id BIGSERIAL PRIMARY KEY,
-    call_id UUID NOT NULL,
+    call_id UUID NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
+    org_id UUID NOT NULL,
     type TEXT NOT NULL,
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     ts_ms INTEGER NOT NULL,
@@ -120,6 +128,7 @@ CREATE TABLE IF NOT EXISTS call_events (
 );
 CREATE INDEX IF NOT EXISTS call_events_call_idx ON call_events(call_id, ts_ms);
 CREATE INDEX IF NOT EXISTS call_events_type_idx ON call_events(type);
+CREATE INDEX IF NOT EXISTS call_events_org_idx ON call_events(org_id);
 
 -- ========== knowledge_bases ==========
 CREATE TABLE IF NOT EXISTS knowledge_bases (
@@ -146,6 +155,8 @@ CREATE TABLE IF NOT EXISTS kb_documents (
 );
 CREATE INDEX IF NOT EXISTS kb_documents_tsv_idx ON kb_documents USING gin(content_tsv);
 CREATE INDEX IF NOT EXISTS kb_documents_kb_idx ON kb_documents(kb_id);
+CREATE UNIQUE INDEX IF NOT EXISTS kb_documents_dedup_idx ON kb_documents(kb_id, checksum)
+    WHERE checksum IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION kb_documents_tsv_trigger() RETURNS trigger AS $$
 BEGIN
@@ -162,7 +173,7 @@ CREATE TRIGGER kb_documents_tsv_update BEFORE INSERT OR UPDATE
 CREATE TABLE IF NOT EXISTS appointments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    call_id UUID,
+    call_id UUID REFERENCES calls(id) ON DELETE SET NULL,
     customer_name TEXT NOT NULL,
     phone TEXT NOT NULL,
     email TEXT,
@@ -206,6 +217,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
 );
 
 -- ========== dnc_list ==========
+-- Intentionally global per spec: no org_id, no RLS. Operators import federal/state lists.
 CREATE TABLE IF NOT EXISTS dnc_list (
     phone TEXT PRIMARY KEY,
     source TEXT NOT NULL,
@@ -224,7 +236,7 @@ CREATE TABLE IF NOT EXISTS consent_records (
 );
 CREATE INDEX IF NOT EXISTS consent_records_phone_idx ON consent_records(phone, org_id, consent_type);
 
--- ========== audit_log (compliance) ==========
+-- ========== audit_log ==========
 CREATE TABLE IF NOT EXISTS audit_log (
     id BIGSERIAL PRIMARY KEY,
     org_id UUID,
@@ -264,6 +276,8 @@ CREATE TABLE IF NOT EXISTS voiceprints (
 
 -- ========== Row-Level Security ==========
 -- Tenants are keyed by org_id. The API sets app.current_org_id per request.
+-- Policy uses COALESCE so an UNSET app.current_org_id evaluates to a sentinel
+-- that matches no UUID — fail-closed.
 ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE phone_numbers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE knowledge_bases ENABLE ROW LEVEL SECURITY;
@@ -274,6 +288,10 @@ ALTER TABLE campaigns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE campaign_targets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE consent_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE voiceprints ENABLE ROW LEVEL SECURITY;
+ALTER TABLE calls ENABLE ROW LEVEL SECURITY;
+ALTER TABLE call_transcripts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE call_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 
 DO $$
 DECLARE
@@ -281,25 +299,26 @@ DECLARE
 BEGIN
     FOREACH t IN ARRAY ARRAY[
         'agents','phone_numbers','knowledge_bases','appointments',
-        'integrations','campaigns','consent_records','voiceprints'
+        'integrations','campaigns','consent_records','voiceprints',
+        'calls','call_transcripts','call_events','audit_log'
     ]
     LOOP
         EXECUTE format($f$
             DROP POLICY IF EXISTS tenant_isolation ON %I;
             CREATE POLICY tenant_isolation ON %I
-            USING (org_id::text = current_setting('app.current_org_id', true))
-            WITH CHECK (org_id::text = current_setting('app.current_org_id', true));
+            USING (org_id::text = COALESCE(current_setting('app.current_org_id', true), '__none__'))
+            WITH CHECK (org_id::text = COALESCE(current_setting('app.current_org_id', true), '__none__'));
         $f$, t, t);
     END LOOP;
 END$$;
 
--- kb_documents inherits via kb_id -> knowledge_bases.org_id; enforce via a function.
+-- kb_documents inherits via kb_id -> knowledge_bases.org_id; enforce via subquery.
 DROP POLICY IF EXISTS tenant_isolation ON kb_documents;
 CREATE POLICY tenant_isolation ON kb_documents
 USING (
     kb_id IN (
         SELECT id FROM knowledge_bases
-        WHERE org_id::text = current_setting('app.current_org_id', true)
+        WHERE org_id::text = COALESCE(current_setting('app.current_org_id', true), '__none__')
     )
 );
 
@@ -308,6 +327,6 @@ CREATE POLICY tenant_isolation ON campaign_targets
 USING (
     campaign_id IN (
         SELECT id FROM campaigns
-        WHERE org_id::text = current_setting('app.current_org_id', true)
+        WHERE org_id::text = COALESCE(current_setting('app.current_org_id', true), '__none__')
     )
 );

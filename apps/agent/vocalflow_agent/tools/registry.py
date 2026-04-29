@@ -242,18 +242,23 @@ class ToolRouter:
             return resp.json()
 
     # ---- Handlers ----
+    # Every tool gets the active call_id so the API can audit-log to call_events
+    # and so payments/handoff can attribute back to the call.
 
     async def _calendar_availability(self, args: dict[str, Any]) -> dict[str, Any]:
-        # Hits API which fans out to connected calendar integration(s).
+        args["call_id"] = self.ctx.call_id
         return await self._post("/v1/tools/calendar/availability", args)
 
     async def _book_appointment(self, args: dict[str, Any]) -> dict[str, Any]:
+        args["call_id"] = self.ctx.call_id
         return await self._post("/v1/tools/calendar/book", args)
 
     async def _lookup_customer(self, args: dict[str, Any]) -> dict[str, Any]:
+        args["call_id"] = self.ctx.call_id
         return await self._post("/v1/tools/crm/lookup", args)
 
     async def _create_ticket(self, args: dict[str, Any]) -> dict[str, Any]:
+        args["call_id"] = self.ctx.call_id
         return await self._post("/v1/tools/tickets", args)
 
     async def _transfer_to_human(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -261,21 +266,27 @@ class ToolRouter:
         return await self._post("/v1/tools/handoff", args)
 
     async def _send_sms(self, args: dict[str, Any]) -> dict[str, Any]:
+        args["call_id"] = self.ctx.call_id
         return await self._post("/v1/tools/sms", args)
 
     async def _send_email(self, args: dict[str, Any]) -> dict[str, Any]:
+        args["call_id"] = self.ctx.call_id
         return await self._post("/v1/tools/email", args)
 
     async def _collect_payment(self, args: dict[str, Any]) -> dict[str, Any]:
         # We NEVER read card digits over voice. The tool returns a link + SMS.
+        args["call_id"] = self.ctx.call_id
         return await self._post("/v1/tools/payments/link", args)
 
     async def _escalate(self, args: dict[str, Any]) -> dict[str, Any]:
+        args["call_id"] = self.ctx.call_id
         return await self._post("/v1/tools/escalate", args)
 
     async def _schedule_callback(self, args: dict[str, Any]) -> dict[str, Any]:
+        args["call_id"] = self.ctx.call_id
         return await self._post("/v1/tools/callback", args)
 
     async def _answer_faq(self, args: dict[str, Any]) -> dict[str, Any]:
         args["kb_id"] = self.ctx.kb_id
+        args["call_id"] = self.ctx.call_id
         return await self._post("/v1/tools/kb/query", args)

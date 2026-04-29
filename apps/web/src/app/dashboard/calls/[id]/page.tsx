@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { api, API_BASE } from "@/lib/api";
+import { api } from "@/lib/api";
 
 type Turn = {
   speaker: string;
@@ -22,9 +22,10 @@ export default function CallDetail({ params }: { params: Promise<{ id: string }>
     queryFn: () => api<Turn[]>(`/v1/calls/${id}/transcript`),
   });
 
-  // Live SSE stream.
+  // Live SSE stream — goes through our Next.js proxy which injects the
+  // Clerk Bearer token (EventSource cannot send custom headers).
   useEffect(() => {
-    const ev = new EventSource(`${API_BASE}/v1/calls/${id}/transcript/stream`);
+    const ev = new EventSource(`/api/calls/${id}/transcript/stream`);
     ev.addEventListener("turn", (e) => {
       try {
         const t = JSON.parse((e as MessageEvent).data) as Turn;

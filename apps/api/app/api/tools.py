@@ -255,6 +255,7 @@ class PaymentReq(BaseModel):
     description: str
     customer_email: str | None = None
     customer_phone: str | None = None
+    call_id: str | None = None
 
 
 @router.post("/payments/link")
@@ -266,6 +267,7 @@ async def payments_link(body: PaymentReq, p: Principal = Depends(current_princip
             amount_cents=body.amount_cents,
             description=body.description,
             customer_email=body.customer_email,
+            call_id=body.call_id,
         )
         # SMS the link if we have a phone.
         if body.customer_phone and link.get("payment_link"):

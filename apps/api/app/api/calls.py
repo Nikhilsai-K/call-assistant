@@ -37,6 +37,12 @@ async def list_calls(limit: int = 50, p: Principal = Depends(current_principal))
 async def start_outbound(
     body: OutboundCallRequest, p: Principal = Depends(current_principal)
 ) -> dict[str, str]:
+    """Persist a Call row immediately so the dashboard sees the request, then
+    enqueue to the agent worker. The compliance gate is non-bypassable: if it
+    raises, no row is committed."""
+    from sqlalchemy import text as _t
+
+    new_call_id: str | None = None
     async with get_session(p.org_id) as s:
         agent = await s.get(Agent, body.agent_id)
         if agent is None or str(agent.org_id) != p.org_id:
@@ -44,20 +50,29 @@ async def start_outbound(
         # Non-bypassable gate.
         await gate_outbound_call(s, org_id=p.org_id, to_e164=body.to)
 
-    # Enqueue to agent runtime via Redis stream.
+        result = await s.execute(
+            _t(
+                "INSERT INTO calls (org_id, agent_id, direction, to_e164, status) "
+                "VALUES (:o, :a, 'outbound', :to, 'queued') RETURNING id"
+            ),
+            {"o": p.org_id, "a": str(body.agent_id), "to": body.to},
+        )
+        new_call_id = str(result.scalar_one())
+
     redis = aioredis.from_url(get_settings().redis_url, decode_responses=True)
-    call_id = await redis.xadd(
+    queue_id = await redis.xadd(
         "vocalflow.outbound.requests",
         {
             "to": body.to,
             "agent_id": str(body.agent_id),
             "org_id": p.org_id,
+            "call_id": new_call_id,
             "campaign_id": str(body.campaign_id) if body.campaign_id else "",
             "metadata": json.dumps(body.metadata),
         },
     )
     await redis.aclose()
-    return {"queued_id": call_id, "status": "accepted"}
+    return {"call_id": new_call_id, "queued_id": queue_id, "status": "accepted"}
 
 
 # ---- Call reads ----
@@ -145,21 +160,34 @@ async def recording_url(call_id: UUID, p: Principal = Depends(current_principal)
         if not call.recording_s3_key:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "no recording yet")
 
+    # Tenant-path enforcement: every recording key MUST live under
+    # `recordings/{org_id}/...`. If the stored key doesn't match, refuse — this
+    # protects against a tampered call row pointing at another tenant's object.
+    expected_prefix = f"recordings/{p.org_id}/"
+    if not call.recording_s3_key.startswith(expected_prefix):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "recording outside tenant scope")
+
+    import asyncio
+
     import boto3
 
     settings = get_settings()
-    s3 = boto3.client(
-        "s3",
-        endpoint_url=settings.s3_endpoint_url,
-        region_name=settings.s3_region,
-        aws_access_key_id=settings.s3_access_key,
-        aws_secret_access_key=settings.s3_secret_key,
-    )
-    url = s3.generate_presigned_url(
-        "get_object",
-        Params={"Bucket": settings.s3_recordings_bucket, "Key": call.recording_s3_key},
-        ExpiresIn=900,
-    )
+
+    def _sign() -> str:
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=settings.s3_endpoint_url,
+            region_name=settings.s3_region,
+            aws_access_key_id=settings.s3_access_key,
+            aws_secret_access_key=settings.s3_secret_key,
+        )
+        return s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": settings.s3_recordings_bucket, "Key": call.recording_s3_key},
+            ExpiresIn=900,
+        )
+
+    url = await asyncio.to_thread(_sign)
     return {"url": url, "expires_in": 900}
 
 

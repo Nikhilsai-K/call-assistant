@@ -13,6 +13,7 @@ class BridgeSettings(BaseSettings):
     # LiveKit publishes 16kHz PCM mono.
     livekit_sample_rate: int = 16000
 
+    redis_url: str = "redis://redis:6379/0"
     log_level: str = "INFO"
 
 

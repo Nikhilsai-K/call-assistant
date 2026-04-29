@@ -2,12 +2,15 @@
 External webhooks. Each verifies its own signature.
 """
 
+import hashlib
+import hmac
 import json
+import time
 
 import redis.asyncio as aioredis
 import stripe
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from twilio.request_validator import RequestValidator
 
 from app.core.config import get_settings
@@ -25,20 +28,25 @@ async def twilio_voice(request: Request) -> Response:
     """
     settings = get_settings()
     form = dict(await request.form())
-    # Verify signature (prod).
-    if settings.env != "development" and settings.twilio_auth_token:
+    # Verify signature. Tighter gate: in production, REFUSE if no token configured.
+    if settings.twilio_auth_token:
         validator = RequestValidator(settings.twilio_auth_token)
         sig = request.headers.get("X-Twilio-Signature", "")
         url = str(request.url)
         if not validator.validate(url, form, sig):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "bad twilio signature")
+    elif settings.env == "production":
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, "twilio_auth_token not configured"
+        )
 
     to_e164 = form.get("To", "")
     from_e164 = form.get("From", "")
     call_sid = form.get("CallSid", "")
 
+    # Webhooks are provider-signed, not user-bearer; we look up the org via the
+    # called number, then bind app.current_org_id BEFORE any further DB writes.
     async with get_session() as s:
-        # Look up the number's org + agent (no tenant filter — this is provider-signed).
         res = await s.execute(select(PhoneNumber).where(PhoneNumber.e164 == to_e164))
         pn = res.scalar_one_or_none()
 
@@ -46,16 +54,36 @@ async def twilio_voice(request: Request) -> Response:
         twiml = "<Response><Say>This number is not configured. Goodbye.</Say><Hangup/></Response>"
         return Response(content=twiml, media_type="application/xml")
 
-    # Publish an "incoming call" event; agent worker claims it and joins the room.
-    redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+    org_id = str(pn.org_id)
     room = f"call-{call_sid}"
+
+    # Persist the inbound Call row up front so the dashboard sees it
+    # immediately. Bind RLS to the resolved org_id.
+    async with get_session(org_id) as s:
+        await s.execute(
+            text(
+                "INSERT INTO calls (org_id, agent_id, phone_number_id, direction, "
+                "from_e164, to_e164, livekit_room, status) VALUES "
+                "(:org_id, :agent_id, :pn_id, 'inbound', :from_e164, :to_e164, :room, 'ringing')"
+            ),
+            {
+                "org_id": org_id,
+                "agent_id": str(pn.agent_id) if pn.agent_id else None,
+                "pn_id": str(pn.id),
+                "from_e164": from_e164,
+                "to_e164": to_e164,
+                "room": room,
+            },
+        )
+
+    redis = aioredis.from_url(settings.redis_url, decode_responses=True)
     await redis.xadd(
         "vocalflow.inbound.pstn",
         {
             "call_sid": call_sid,
             "from": from_e164,
             "to": to_e164,
-            "org_id": str(pn.org_id),
+            "org_id": org_id,
             "agent_id": str(pn.agent_id) if pn.agent_id else "",
             "phone_number_id": str(pn.id),
             "room": room,
@@ -63,13 +91,12 @@ async def twilio_voice(request: Request) -> Response:
     )
     await redis.aclose()
 
-    # Stream Twilio's media into LiveKit via the <Connect><Stream/>... bridge.
     stream_url = f"{settings.bridge_public_url}/twilio-bridge/{room}"
     twiml = (
         "<Response>"
         f'<Connect><Stream url="{stream_url}">'
         f'<Parameter name="room" value="{room}"/>'
-        f'<Parameter name="org_id" value="{pn.org_id}"/>'
+        f'<Parameter name="org_id" value="{org_id}"/>'
         "</Stream></Connect>"
         "</Response>"
     )
@@ -81,6 +108,12 @@ async def twilio_sms(request: Request) -> Response:
     """Inbound SMS — record + forward to the org's Slack/Teams + persist for review."""
     settings = get_settings()
     form = dict(await request.form())
+    if settings.twilio_auth_token:
+        validator = RequestValidator(settings.twilio_auth_token)
+        sig = request.headers.get("X-Twilio-Signature", "")
+        url = str(request.url)
+        if not validator.validate(url, form, sig):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "bad twilio signature")
     redis = aioredis.from_url(settings.redis_url, decode_responses=True)
     await redis.xadd(
         "vocalflow.inbound.sms",
@@ -116,11 +149,21 @@ async def stripe_webhook(request: Request) -> dict:
     settings = get_settings()
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
-    try:
-        event = stripe.Webhook.construct_event(payload, sig, settings.stripe_webhook_secret)
-    except Exception as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"bad signature: {e}") from e
-    # fan out to worker for async processing
+    if not settings.stripe_webhook_secret:
+        if settings.env == "production":
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR, "stripe_webhook_secret not configured"
+            )
+        # Dev convenience: accept unsigned but still parse JSON.
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "bad json") from e
+    else:
+        try:
+            event = stripe.Webhook.construct_event(payload, sig, settings.stripe_webhook_secret)
+        except Exception as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"bad signature: {e}") from e
     redis = aioredis.from_url(settings.redis_url, decode_responses=True)
     await redis.xadd("vocalflow.stripe.events", {"event": json.dumps(event)})
     await redis.aclose()
@@ -140,12 +183,41 @@ async def calendar_webhook(provider: str, request: Request) -> dict:
     return {"ok": True}
 
 
+def _verify_slack_signature(body: bytes, headers: dict, signing_secret: str) -> bool:
+    """Slack v0 HMAC-SHA256 over `v0:{ts}:{body}`."""
+    ts = headers.get("x-slack-request-timestamp", "")
+    sig = headers.get("x-slack-signature", "")
+    if not (ts and sig and signing_secret):
+        return False
+    # Reject anything older than 5 minutes (replay protection).
+    try:
+        if abs(time.time() - int(ts)) > 60 * 5:
+            return False
+    except ValueError:
+        return False
+    base = f"v0:{ts}:".encode() + body
+    expected = "v0=" + hmac.new(signing_secret.encode(), base, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, sig)
+
+
 @router.post("/slack/events")
 async def slack_events(request: Request) -> dict:
+    settings = get_settings()
     body = await request.body()
-    # Slack Events API — respond to URL verification, forward real events.
+    headers = {k.lower(): v for k, v in request.headers.items()}
+    if settings.slack_signing_secret:
+        if not _verify_slack_signature(body, headers, settings.slack_signing_secret):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "bad slack signature")
+    elif settings.env == "production":
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, "slack_signing_secret not configured"
+        )
+
     data = json.loads(body or b"{}")
     if data.get("type") == "url_verification":
         return {"challenge": data["challenge"]}
-    # Verify signature (skipped in dev; prod uses settings.slack_signing_secret).
+    # Forward real events to the worker.
+    redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+    await redis.xadd("vocalflow.slack.events", {"event": json.dumps(data)})
+    await redis.aclose()
     return {"ok": True}

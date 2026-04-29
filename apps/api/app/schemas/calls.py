@@ -18,10 +18,18 @@ class CallRead(BaseModel):
     ended_at: datetime | None
     duration_s: int | None
     outcome: str | None
+    outcome_details: dict[str, Any] | None = None
+    sentiment_timeline: list[dict[str, Any]] | None = None
     recording_s3_key: str | None
     cost_cents: int | None
+    stt_cost_cents: int | None = None
+    llm_cost_cents: int | None = None
+    tts_cost_cents: int | None = None
+    twilio_cost_cents: int | None = None
     handoff_target: str | None
+    handoff_reason: str | None = None
     quality_score: float | None
+    status: str | None = None
 
 
 class OutboundCallRequest(BaseModel):

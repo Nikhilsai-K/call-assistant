@@ -50,6 +50,7 @@ class Call(Base):
     livekit_room: Mapped[str | None] = mapped_column(String, nullable=True)
     langfuse_trace_id: Mapped[str | None] = mapped_column(String, nullable=True)
     quality_score: Mapped[float | None] = mapped_column(Numeric(3, 1), nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
 
 
 class CallTranscript(Base):
@@ -57,6 +58,7 @@ class CallTranscript(Base):
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     call_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    org_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     speaker: Mapped[str] = mapped_column(String, nullable=False)  # agent|customer|human_takeover
     text: Mapped[str] = mapped_column(String, nullable=False)
     start_ms: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -73,6 +75,7 @@ class CallEvent(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     call_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    org_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     type: Mapped[str] = mapped_column(String, nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     ts_ms: Mapped[int] = mapped_column(Integer, nullable=False)

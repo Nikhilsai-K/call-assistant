@@ -113,6 +113,8 @@ async def twilio_bridge(ws: WebSocket, room_name: str) -> None:
             raw = await ws.receive_text()
             evt: dict[str, Any] = json.loads(raw)
             event = evt.get("event")
+            if event == "connected":
+                continue
             if event == "start":
                 stream_sid = evt.get("start", {}).get("streamSid") or evt.get("streamSid")
                 log.info("bridge.start", room=room_name, stream_sid=stream_sid)
@@ -132,6 +134,21 @@ async def twilio_bridge(ws: WebSocket, room_name: str) -> None:
                     samples_per_channel=samples,
                 )
                 await source.capture_frame(frame)
+            elif event == "dtmf":
+                # Forward DTMF digits to the agent worker (used in PCI payment flow).
+                digit = evt.get("dtmf", {}).get("digit")
+                if digit:
+                    import redis.asyncio as aioredis
+
+                    r = aioredis.from_url(
+                        getattr(settings, "redis_url", "redis://redis:6379/0"),
+                        decode_responses=True,
+                    )
+                    await r.publish(f"vocalflow.rooms.{room_name}.dtmf", digit)
+                    await r.aclose()
+            elif event == "mark":
+                # Twilio acks a `mark` we sent — confirms TTS chunk reached the caller.
+                log.debug("bridge.mark", room=room_name, name=evt.get("mark", {}).get("name"))
             elif event == "stop":
                 log.info("bridge.stop", room=room_name)
                 break

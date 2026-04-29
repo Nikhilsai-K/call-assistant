@@ -10,7 +10,6 @@ import uuid
 from typing import Any
 
 import httpx
-import redis
 import structlog
 from celery import shared_task
 from qdrant_client import QdrantClient
@@ -35,18 +34,26 @@ def _get_session():
     return _Session()
 
 
-_redis = redis.from_url(settings.redis_url, decode_responses=True)
-_qdrant = QdrantClient(url=settings.qdrant_url)
+_qdrant: QdrantClient | None = None
+
+
+def _get_qdrant() -> QdrantClient:
+    global _qdrant
+    if _qdrant is None:
+        _qdrant = QdrantClient(url=settings.qdrant_url)
+    return _qdrant
+
 
 COLLECTION = "vocalflow_kb"
 EMBED_DIM = 1024  # cohere embed-v3
 
 
 def _ensure_collection() -> None:
+    q = _get_qdrant()
     try:
-        _qdrant.get_collection(COLLECTION)
+        q.get_collection(COLLECTION)
     except Exception:
-        _qdrant.create_collection(
+        q.create_collection(
             collection_name=COLLECTION,
             vectors_config=qm.VectorParams(size=EMBED_DIM, distance=qm.Distance.COSINE),
         )
@@ -127,20 +134,17 @@ def index_document(self, doc_id: str) -> dict[str, Any]:
         )
         for chunk, vec in zip(chunks, embeddings, strict=True)
     ]
-    _qdrant.upsert(collection_name=COLLECTION, points=points)
+    _get_qdrant().upsert(collection_name=COLLECTION, points=points)
     return {"ok": True, "chunks": len(chunks)}
 
 
 @shared_task(name="vocalflow_worker.tasks.kb_index.redrive")
 def redrive() -> int:
+    from ..redis_helpers import drain_stream
+
     count = 0
-    while True:
-        entries = _redis.xread({"vocalflow.kb.index": "0"}, count=20, block=100)
-        if not entries:
-            break
-        for _, batch in entries:
-            for msg_id, fields in batch:
-                index_document.delay(fields["doc_id"])
-                _redis.xdel("vocalflow.kb.index", msg_id)
-                count += 1
+    for _msg_id, fields in drain_stream("vocalflow.kb.index", batch=20):
+        if "doc_id" in fields:
+            index_document.delay(fields["doc_id"])
+            count += 1
     return count
